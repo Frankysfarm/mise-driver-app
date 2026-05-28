@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Mise Driver — iOS Info.plist
+  Wird beim ersten `npx cap add ios` von Capacitor in ios/App/App/Info.plist generiert.
+  Diese Datei zeigt die WICHTIGEN Permission-Keys die ergänzt werden müssen.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Standortzugriff: Vordergrund + Hintergrund für Live-Tracking während Lieferung -->
+  <key>NSLocationWhenInUseUsageDescription</key>
+  <string>Mise Driver braucht deinen Standort um deine Position der Lieferzentrale und dem Kunden anzuzeigen.</string>
+
+  <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+  <string>Mise Driver braucht Hintergrund-Standort um deine Live-Position auch dann zu aktualisieren, wenn der Bildschirm aus ist oder du in einer anderen App bist.</string>
+
+  <key>NSLocationAlwaysUsageDescription</key>
+  <string>Mise Driver braucht kontinuierlichen Standort um die Lieferzeit präzise zu berechnen.</string>
+
+  <!-- Kamera: QR-Code-Scan + Liefer-Foto-Beweis -->
+  <key>NSCameraUsageDescription</key>
+  <string>Mise Driver braucht die Kamera für QR-Code-Login und Liefer-Foto-Beweise bei der Übergabe.</string>
+
+  <key>NSPhotoLibraryAddUsageDescription</key>
+  <string>Mise Driver speichert Liefer-Fotos in deiner Fotomediathek als Beleg.</string>
+
+  <!-- Hintergrund-Modi: Location + Push -->
+  <key>UIBackgroundModes</key>
+  <array>
+    <string>location</string>
+    <string>remote-notification</string>
+    <string>fetch</string>
+  </array>
+
+  <!-- Network Security: HTTPS-Only für mise-gastro.de -->
+  <key>NSAppTransportSecurity</key>
+  <dict>
+    <key>NSAllowsArbitraryLoads</key>
+    <false/>
+    <key>NSExceptionDomains</key>
+    <dict>
+      <key>mise-gastro.de</key>
+      <dict>
+        <key>NSIncludesSubdomains</key>
+        <true/>
+        <key>NSTemporaryExceptionRequiresForwardSecrecy</key>
+        <true/>
+      </dict>
+    </dict>
+  </dict>
+
+  <!-- App Display Name + Version werden bei `cap add ios` automatisch gesetzt -->
+  <key>CFBundleDisplayName</key>
+  <string>Mise Driver</string>
+
+  <key>CFBundleShortVersionString</key>
+  <string>1.0.0</string>
+
+  <key>CFBundleVersion</key>
+  <string>1</string>
+
+  <!-- URL Schemes (für Deep-Links aus QR-Login-Mails) -->
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key>
+      <string>app.mise.driver</string>
+      <key>CFBundleURLSchemes</key>
+      <array>
+        <string>mise-driver</string>
+      </array>
+    </dict>
+  </array>
+</dict>
+</plist>
