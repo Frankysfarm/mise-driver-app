@@ -1,61 +1,137 @@
-# Mise Driver — Native App
+# Mise Driver — Native iOS-App für TestFlight
 
-iOS/Android Wrapper für die Fahrer-Web-App unter `https://mise-gastro.de/driver`.
+**Multi-Tenant Fahrer-App** mit Smart-Delivery-System — eine App für alle Restaurants. Fahrer loggt sich mit eigenem Account ein, sieht zugewiesene Touren mit GPS-Tracking, Multi-Stop-Navigation und Live-ETA.
 
-## Architektur
+## Was die App tut
 
-Capacitor-WebView lädt `https://mise-gastro.de/driver` direkt → Live-Updates ohne neuen App-Store-Build.
+- **WebView lädt** `mise-gastro.de/fahrer/app` — Smart-Delivery-Code bleibt im Backoffice
+- **GPS-Background-Tracking** für Live-Kundenposition
+- **Push-Notifications** für neue Touren-Zuweisungen
+- **Multi-Tenant** über Supabase Auth + RLS: Fahrer sieht nur eigene Touren
+- **Updates** ohne neuen App-Store-Build (Live-URL pattern)
+- **Apple-Review-fähig**: GPS-Hintergrund + Push als nativer Mehrwert dokumentiert
 
-## Build
+## Voraussetzungen auf deinem Mac
 
-```bash
-cd /opt/mise/driver-native
-npm install
-npm run add:ios       # einmalig: erzeugt ios/ Folder
-npm run ios           # öffnet Xcode
-```
+| Was | Wie kriegen |
+|---|---|
+| **macOS 13+** mit Xcode 15+ | Mac App Store (gratis) |
+| **Node.js 20+** | `brew install node` |
+| **CocoaPods** | `sudo gem install cocoapods` |
+| **Apple Developer Account** | $99/Jahr, Team-ID zur Hand |
+| **iPhone** mit iOS 16+ zum Testen | optional |
 
-In Xcode:
-1. Team auswählen (Signing & Capabilities)
-2. Bundle-ID prüfen: `app.mise.driver`
-3. „Archive" → „Distribute App" → TestFlight
+---
 
-## Permissions (Info.plist)
+## 🚀 Komplett-Anleitung: TestFlight in ~15 Min
 
-Die wichtigen Keys werden in `ios/App/App/Info.plist` gepflegt:
-
-```xml
-<key>NSLocationWhenInUseUsageDescription</key>
-<string>Mise Driver braucht deinen Standort für Live-Tracking während der Lieferung.</string>
-
-<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-<string>Mise Driver braucht Hintergrund-Standort um deine Position auch dann zu aktualisieren, wenn der Bildschirm aus ist.</string>
-
-<key>NSCameraUsageDescription</key>
-<string>Mise Driver braucht die Kamera für QR-Code-Scan und Liefer-Foto-Beweise.</string>
-
-<key>NSPhotoLibraryAddUsageDescription</key>
-<string>Mise Driver speichert Liefer-Fotos in deiner Fotomediathek.</string>
-
-<key>UIBackgroundModes</key>
-<array>
-  <string>location</string>
-  <string>remote-notification</string>
-</array>
-```
-
-## App-Icon & Splash
-
-`resources/icon.svg` und `resources/splash.svg` mit dem Capacitor Assets Plugin generieren:
+### Schritt 1 — Repo runterziehen
 
 ```bash
-npm install -D @capacitor/assets
-npx @capacitor/assets generate --iconBackgroundColor "#09090b" --splashBackgroundColor "#09090b"
+git clone https://github.com/Frankysfarm/mise-driver-app.git
+cd mise-driver-app
 ```
 
-## Pilot-Workflow
+### Schritt 2 — Setup-Script ausführen (macht alles)
 
-1. Fahrer installiert App via TestFlight-Invite
-2. Beim Start: Auto-Redirect auf `mise-gastro.de/driver`
-3. Driver-App-Login erfolgt über die Web-Page (Code/Magic-Link)
-4. Live-Bestellungen via Polling/Realtime aus dem Mise-Backend
+```bash
+./setup-mac.sh
+```
+
+Das Script macht automatisch:
+- npm install
+- iOS-Projekt erstellen
+- Permissions in Info.plist (GPS Background, Kamera, Push)
+- Icons + Splash generieren
+- Capacitor sync
+- Xcode öffnen
+
+### Schritt 3 — Apple Developer Team setzen (Xcode)
+
+1. Im Project Navigator links: **App** klicken
+2. Tab **Signing & Capabilities**
+3. **Team:** dein Apple-Developer-Team auswählen
+4. **Bundle Identifier:** `app.mise.driver`
+
+### Schritt 4 — App auf iPhone testen (Xcode)
+
+1. iPhone per Kabel mit Mac verbinden
+2. Oben in Xcode: iPhone als **Run-Target** auswählen
+3. **Cmd-R** → App startet auf iPhone
+4. GPS/Kamera/Push erlauben
+5. Login mit Fahrer-Account testen
+
+### Schritt 5 — Production-Archive für TestFlight
+
+1. Oben Run-Target auf **„Any iOS Device (arm64)"** umstellen
+2. **Product → Archive** (dauert 2-3 Min)
+3. **Organizer**-Fenster öffnet sich
+4. **Distribute App** → **App Store Connect** → **Upload**
+
+### Schritt 6 — TestFlight aktivieren (App Store Connect Web)
+
+1. https://appstoreconnect.apple.com → **Meine Apps**
+2. **+ → Neue App**
+3. Plattform: **iOS** · Name: **Mise Driver** · Bundle-ID: `app.mise.driver`
+4. Sprache: **Deutsch** · Kategorie: **Wirtschaft**
+5. Tab **TestFlight** → dein Build erscheint nach 5-15 Min
+6. **Test-Informationen** ausfüllen:
+   - Beschreibung: „Fahrer-App für Restaurant-Lieferdienste. Smart-Touren-Bündelung, Live-GPS-Tracking, Multi-Stop-Navigation."
+   - Login: Fahrer-Account einfügen
+7. **Internes Testing** → Tester einladen
+
+---
+
+## 🎯 Apple-Review-Notes (wichtig!)
+
+**Beim TestFlight-Submit** im Feld „Notes for Reviewer":
+
+```
+Mise Driver is a multi-tenant delivery driver app. The webview is
+the main UI (shared web/native architecture), but native features
+are essential and cannot be done in a browser PWA:
+
+1. Background GPS location tracking — drivers need their position
+   shared with customers and dispatch even when the screen is off
+   or another app is in foreground
+2. Push notifications for incoming order assignments — drivers must
+   be alerted instantly when a new tour is assigned
+3. Camera for QR-code login and delivery proof photos
+4. Haptic feedback for order confirmation
+
+Test login:
+  Email: [Fahrer-Account]
+  Password: [Passwort]
+
+After login, drivers see their assigned tours with optimized stop
+order, live ETAs per stop, and one-tap navigation to Apple/Google
+Maps.
+```
+
+---
+
+## 🔄 Updates ohne neuen App-Store-Build
+
+Da der WebView die Live-URL lädt, sind Updates am Smart-Delivery-Code **sofort live** — kein neuer App-Store-Build nötig. Native-App-Updates braucht es nur wenn:
+
+- Neue Permissions (z.B. NFC, Apple Pay)
+- Neue Capacitor-Plugins
+- iOS-System-Updates erzwingen Rebuild
+
+---
+
+## 📦 Was im Repo ist
+
+```
+mise-driver-app/
+├── capacitor.config.ts       # GPS-Background + Push + Multi-Tenant
+├── package.json              # Capacitor 6 + Geolocation + Push + Camera
+├── ios-template/Info.plist   # GPS/Kamera/Background-Permissions
+├── resources/
+│   ├── icon.svg              # 1024×1024 Mise-Logo
+│   ├── icon.png              # 1024×1024 PNG (für Capacitor Assets)
+│   ├── splash.svg            # 2732×2732
+│   └── splash.png            # 2732×2732 PNG
+├── setup-mac.sh              # One-Click Setup
+└── README.md                 # Diese Datei
+```
