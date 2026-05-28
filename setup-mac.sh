@@ -1,60 +1,104 @@
 #!/usr/bin/env bash
-# Mise Driver — One-Command-Setup für deinen Mac
-#
-# Voraussetzung:
-#   - Xcode installiert + einmal geöffnet (Lizenz akzeptiert)
-#   - Node.js >= 18
-#   - Apple Developer Account in Xcode hinterlegt
-#
-# Nach Erfolg: Xcode öffnet sich → Team auswählen → Archive → TestFlight
+# ============================================================
+# Mise Driver — Ein-Klick Setup für Mac
+# ============================================================
+# Führe dieses Script einmal aus, dann öffnet sich Xcode.
+# Du musst nur noch:
+#  1. Team auswählen (Signing & Capabilities)
+#  2. Product → Archive
+#  3. Distribute App → App Store Connect → Upload
+# ============================================================
 
 set -e
-
 cd "$(dirname "$0")"
 
-echo "▸ 1/5 — Dependencies installieren..."
-npm install
+echo ""
+echo "🚀 Mise Driver — TestFlight Setup"
+echo "=================================="
+echo ""
 
-echo "▸ 2/5 — iOS-Projekt erzeugen (einmalig)..."
+# Check Voraussetzungen
+command -v node >/dev/null 2>&1 || { echo "❌ Node.js fehlt. Install: brew install node"; exit 1; }
+command -v npm >/dev/null 2>&1 || { echo "❌ npm fehlt"; exit 1; }
+command -v xcodebuild >/dev/null 2>&1 || { echo "❌ Xcode fehlt. Install: App Store"; exit 1; }
+
+echo "✓ Voraussetzungen OK"
+echo ""
+
+# Step 1: Dependencies
+echo "▸ 1/6 — Installiere Dependencies..."
+npm install --silent
+
+# Step 2: iOS-Projekt
+echo "▸ 2/6 — iOS-Projekt vorbereiten..."
 if [ ! -d "ios" ]; then
   npx cap add ios
-fi
-
-echo "▸ 3/5 — Permissions in Info.plist ergänzen..."
-INFO_PLIST="ios/App/App/Info.plist"
-if [ -f "$INFO_PLIST" ] && ! grep -q "NSLocationWhenInUseUsageDescription" "$INFO_PLIST"; then
-  # Permissions vor </dict></plist> einfügen
-  /usr/libexec/PlistBuddy -c "Add :NSLocationWhenInUseUsageDescription string 'Mise Driver braucht deinen Standort um deine Position der Lieferzentrale und dem Kunden anzuzeigen.'" "$INFO_PLIST"
-  /usr/libexec/PlistBuddy -c "Add :NSLocationAlwaysAndWhenInUseUsageDescription string 'Mise Driver braucht Hintergrund-Standort um deine Live-Position auch dann zu aktualisieren, wenn der Bildschirm aus ist.'" "$INFO_PLIST"
-  /usr/libexec/PlistBuddy -c "Add :NSCameraUsageDescription string 'Mise Driver braucht die Kamera für QR-Code-Login und Liefer-Foto-Beweise.'" "$INFO_PLIST"
-  /usr/libexec/PlistBuddy -c "Add :NSPhotoLibraryAddUsageDescription string 'Mise Driver speichert Liefer-Fotos als Beleg.'" "$INFO_PLIST"
-  /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes array" "$INFO_PLIST" 2>/dev/null || true
-  /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:0 string location" "$INFO_PLIST"
-  /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:1 string remote-notification" "$INFO_PLIST"
-  echo "  ✓ Permissions hinzugefügt"
+  echo "  ✓ iOS-Projekt erstellt"
 else
-  echo "  → Permissions schon vorhanden, überspringe"
+  echo "  → iOS-Projekt existiert"
 fi
 
-echo "▸ 4/5 — App-Icons + Splash generieren..."
-if ! npm list @capacitor/assets >/dev/null 2>&1; then
-  npm install -D @capacitor/assets
+# Step 3: Permissions
+echo "▸ 3/6 — Permissions in Info.plist..."
+INFO="ios/App/App/Info.plist"
+if [ -f "$INFO" ]; then
+  /usr/libexec/PlistBuddy -c "Delete :NSLocationWhenInUseUsageDescription" "$INFO" 2>/dev/null || true
+  /usr/libexec/PlistBuddy -c "Add :NSLocationWhenInUseUsageDescription string 'Mise Driver braucht deinen Standort um Lieferzentrale und Kunden deine Position zu zeigen.'" "$INFO"
+
+  /usr/libexec/PlistBuddy -c "Delete :NSLocationAlwaysAndWhenInUseUsageDescription" "$INFO" 2>/dev/null || true
+  /usr/libexec/PlistBuddy -c "Add :NSLocationAlwaysAndWhenInUseUsageDescription string 'Mise Driver braucht Hintergrund-Standort fuer Live-Tracking waehrend der Lieferung.'" "$INFO"
+
+  /usr/libexec/PlistBuddy -c "Delete :NSCameraUsageDescription" "$INFO" 2>/dev/null || true
+  /usr/libexec/PlistBuddy -c "Add :NSCameraUsageDescription string 'Mise Driver braucht die Kamera fuer QR-Login und Liefer-Beweis-Fotos.'" "$INFO"
+
+  /usr/libexec/PlistBuddy -c "Delete :NSPhotoLibraryAddUsageDescription" "$INFO" 2>/dev/null || true
+  /usr/libexec/PlistBuddy -c "Add :NSPhotoLibraryAddUsageDescription string 'Mise Driver speichert Liefer-Beweis-Fotos.'" "$INFO"
+
+  /usr/libexec/PlistBuddy -c "Delete :UIBackgroundModes" "$INFO" 2>/dev/null || true
+  /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes array" "$INFO"
+  /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:0 string location" "$INFO"
+  /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:1 string remote-notification" "$INFO"
+
+  echo "  ✓ Permissions gesetzt"
 fi
-npx @capacitor/assets generate \
+
+# Step 4: Icons + Splash
+echo "▸ 4/6 — Icons + Splash generieren..."
+if ! npm list @capacitor/assets >/dev/null 2>&1; then
+  npm install -D @capacitor/assets --silent
+fi
+npx @capacitor/assets generate --ios \
   --iconBackgroundColor '#09090b' \
   --iconBackgroundColorDark '#09090b' \
   --splashBackgroundColor '#09090b' \
-  --splashBackgroundColorDark '#09090b' || echo "  (Assets-Plugin braucht resources/icon.png + splash.png — SVG-Variante bitte vorher zu PNG konvertieren)"
+  --splashBackgroundColorDark '#09090b' 2>&1 | tail -3 || echo "  ⚠ Icons brauchen icon.png + splash.png in resources/"
 
-echo "▸ 5/5 — Sync + Xcode öffnen..."
+# Step 5: Sync
+echo "▸ 5/6 — Capacitor sync..."
 npx cap sync ios
+
+# Step 6: Xcode öffnen
+echo "▸ 6/6 — Xcode öffnen..."
 npx cap open ios
 
 echo ""
-echo "✅ Fertig!"
+echo "============================================"
+echo "✅ FERTIG! Xcode öffnet sich jetzt"
+echo "============================================"
 echo ""
-echo "In Xcode:"
-echo "  1. Klick auf 'App' → 'Signing & Capabilities' → Team auswählen"
-echo "  2. Product → Archive (oben in der Menüleiste)"
-echo "  3. Window → Organizer → Distribute App → App Store Connect → Upload"
-echo "  4. TestFlight-Bereich in App Store Connect → Tester hinzufügen"
+echo "Nächste Schritte in Xcode:"
+echo ""
+echo "  1️⃣  Links: Klick auf 'App' (Projekt-Root)"
+echo "  2️⃣  'Signing & Capabilities' Tab"
+echo "  3️⃣  Team auswählen (Apple Developer Account)"
+echo "  4️⃣  Bundle Identifier: app.mise.driver"
+echo ""
+echo "  5️⃣  Oben: 'Any iOS Device (arm64)' wählen"
+echo "  6️⃣  Menü: Product → Archive"
+echo "  7️⃣  Im Organizer-Fenster: 'Distribute App'"
+echo "  8️⃣  → 'App Store Connect' → 'Upload'"
+echo ""
+echo "  9️⃣  Auf appstoreconnect.apple.com:"
+echo "      → TestFlight Tab (Build erscheint nach ~10 Min)"
+echo "      → Tester einladen → Fertig!"
+echo ""

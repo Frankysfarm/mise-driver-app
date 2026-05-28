@@ -20,7 +20,7 @@ const config: CapacitorConfig = {
   appName: 'Mise Driver',
   webDir: 'web',
   server: {
-    url: 'https://mise-gastro.de/driver',
+    url: 'https://mise-gastro.de/fahrer/app',
     cleartext: false,
     androidScheme: 'https',
     allowNavigation: [
