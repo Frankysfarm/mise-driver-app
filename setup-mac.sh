@@ -74,11 +74,28 @@ npx @capacitor/assets generate --ios \
   --splashBackgroundColorDark '#09090b' 2>&1 | tail -3 || echo "  ⚠ Icons brauchen icon.png + splash.png in resources/"
 
 # Step 5: Sync
-echo "▸ 5/6 — Capacitor sync..."
+echo "▸ 5/7 — Capacitor sync..."
 npx cap sync ios
 
-# Step 6: Xcode öffnen
-echo "▸ 6/6 — Xcode öffnen..."
+# Step 6: Build-Nummer + Version setzen
+# WICHTIG: 'cap add ios' erzeugt IMMER Build-Nummer 1. Auf der App-Store-Connect-App
+# (app.mise.driver) existierten aber schon Builds bis 14 — ein Upload mit Build 1 (oder
+# einer schon benutzten Nummer) wird von Apple ABGELEHNT ("build number must be higher").
+# Lösung: datums-basierte Build-Nummer (JJJJMMTTHHMM) — bei jedem Build automatisch höher,
+# nie wieder eine Ablehnung, kein manuelles Hochzählen nötig.
+echo "▸ 6/7 — Build-Nummer + Version setzen..."
+PBX="ios/App/App.xcodeproj/project.pbxproj"
+BUILD_NO="$(date +%Y%m%d%H%M)"
+if [ -f "$PBX" ]; then
+  sed -i '' "s/CURRENT_PROJECT_VERSION = [0-9.]*;/CURRENT_PROJECT_VERSION = ${BUILD_NO};/g" "$PBX"
+  sed -i '' "s/MARKETING_VERSION = [0-9.]*;/MARKETING_VERSION = 1.0.0;/g" "$PBX"
+  echo "  ✓ Build-Nummer ${BUILD_NO}, Version 1.0.0"
+else
+  echo "  ⚠ project.pbxproj nicht gefunden — Build-Nummer manuell in Xcode setzen (> 14)!"
+fi
+
+# Step 7: Xcode öffnen
+echo "▸ 7/7 — Xcode öffnen..."
 npx cap open ios
 
 echo ""
