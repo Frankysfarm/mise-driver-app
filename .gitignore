@@ -1,0 +1,16 @@
+# Dependencies
+node_modules/
+
+# Generiert von setup-mac.sh / cap add ios (nie commiten)
+ios/
+android/
+
+# Build-Artefakte
+*.ipa
+*.xcarchive
+DerivedData/
+
+# macOS / Editor
+.DS_Store
+.vscode/
+.idea/
