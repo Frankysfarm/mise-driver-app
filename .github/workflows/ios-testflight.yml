@@ -75,6 +75,10 @@ jobs:
           printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' '<plist version="1.0"><dict><key>aps-environment</key><string>production</string></dict></plist>' > "$ENT"
           PBX="ios/App/App.xcodeproj/project.pbxproj"
           perl -i -pe 's/(PRODUCT_BUNDLE_IDENTIFIER = app\.mise\.driver;)/$1\n\t\t\t\tCODE_SIGN_ENTITLEMENTS = App\/App.entitlements;/g' "$PBX"
+          # Manuelles Distribution-Signing NUR ins App-Target (nicht global -> Pods unberuehrt)
+          perl -i -pe 's/CODE_SIGN_STYLE = Automatic;/CODE_SIGN_STYLE = Manual;\n\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = "Mise Driver AppStore CI";\n\t\t\t\tCODE_SIGN_IDENTITY = "Apple Distribution";\n\t\t\t\tDEVELOPMENT_TEAM = T82KC2CU9V;/g' "$PBX"
+          echo "--- Signing-Settings App-Target ---"
+          grep -c 'PROVISIONING_PROFILE_SPECIFIER = "Mise Driver AppStore CI"' "$PBX"
           echo "--- Entitlements-Datei ---"
           cat "$ENT"
           echo "--- Verknuepfungen im Projekt ---"
@@ -134,10 +138,6 @@ jobs:
             -configuration Release \
             -destination 'generic/platform=iOS' \
             -archivePath "$RUNNER_TEMP/App.xcarchive" \
-            CODE_SIGN_STYLE=Manual \
-            DEVELOPMENT_TEAM="$TEAM_ID" \
-            CODE_SIGN_IDENTITY="Apple Distribution" \
-            PROVISIONING_PROFILE_SPECIFIER="Mise Driver AppStore CI" \
             clean archive
           echo "--- aps-environment im Archiv? ---"
           codesign -d --entitlements - "$RUNNER_TEMP/App.xcarchive/Products/Applications/App.app" 2>/dev/null | grep -i aps-environment && echo "OK im Archiv" || echo "WARN: kein aps-environment"
