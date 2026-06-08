@@ -93,6 +93,25 @@ jobs:
           echo "--- AppDelegate Push-Methoden vorhanden? ---"
           grep -c "capacitorDidRegisterForRemoteNotifications" "$AD"
 
+      - name: Alarm-Sound ins App-Bundle (lauter Push-Ton)
+        run: |
+          cp ios-resources/alarm.caf ios/App/App/alarm.caf
+          gem install xcodeproj --no-document --silent
+          ruby -e '
+            require "xcodeproj"
+            proj = Xcodeproj::Project.open("ios/App/App.xcodeproj")
+            target = proj.targets.find { |t| t.name == "App" }
+            grp = proj.main_group.find_subpath("App", true)
+            unless grp.files.any? { |f| f.path == "alarm.caf" }
+              ref = grp.new_reference("alarm.caf")
+              target.resources_build_phase.add_file_reference(ref)
+              proj.save
+            end
+            puts "alarm.caf in Resources"
+          '
+          echo "--- alarm.caf im Bundle-Resources? ---"
+          grep -c "alarm.caf" ios/App/App.xcodeproj/project.pbxproj
+
       - name: Build-Nummer (datums-basiert) + Version setzen
         run: |
           PBX="ios/App/App.xcodeproj/project.pbxproj"
