@@ -138,7 +138,6 @@ jobs:
             DEVELOPMENT_TEAM="$TEAM_ID" \
             CODE_SIGN_IDENTITY="Apple Distribution" \
             PROVISIONING_PROFILE_SPECIFIER="Mise Driver AppStore CI" \
-            CODE_SIGN_ENTITLEMENTS="App/App.entitlements" \
             clean archive
           echo "--- aps-environment im Archiv? ---"
           codesign -d --entitlements - "$RUNNER_TEMP/App.xcarchive/Products/Applications/App.app" 2>/dev/null | grep -i aps-environment && echo "OK im Archiv" || echo "WARN: kein aps-environment"
