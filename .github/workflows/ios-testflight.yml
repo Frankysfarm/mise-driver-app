@@ -84,14 +84,21 @@ jobs:
           echo "--- Verknuepfungen im Projekt ---"
           grep -c "CODE_SIGN_ENTITLEMENTS = App/App.entitlements" "$PBX"
 
-      - name: AppDelegate APNs-Token an Capacitor weiterleiten (Push-Token-Fix)
+      - name: AppDelegate ersetzen (PushKit/VoIP + CallKit + Push-Forwarding)
         run: |
-          AD="ios/App/App/AppDelegate.swift"
-          if ! grep -q "capacitorDidRegisterForRemoteNotifications" "$AD"; then
-            perl -0pi -e 's/\}(\s*)\z/\n    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {\n        NotificationCenter.default.post(name: .capacitorDidRegisterForRemoteNotifications, object: deviceToken)\n    }\n\n    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {\n        NotificationCenter.default.post(name: .capacitorDidFailToRegisterForRemoteNotifications, object: error)\n    }\n}\n/' "$AD"
-          fi
-          echo "--- AppDelegate Push-Methoden vorhanden? ---"
-          grep -c "capacitorDidRegisterForRemoteNotifications" "$AD"
+          cp ios-resources/AppDelegate.swift ios/App/App/AppDelegate.swift
+          echo "--- AppDelegate CallKit/PushKit drin? ---"
+          grep -c "PKPushRegistry\|CXProvider\|capacitorDidRegisterForRemoteNotifications" ios/App/App/AppDelegate.swift
+
+      - name: VoIP-Background-Mode in Info.plist
+        run: |
+          PLIST="ios/App/App/Info.plist"
+          /usr/libexec/PlistBuddy -c "Delete :UIBackgroundModes" "$PLIST" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes array" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:0 string voip" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:1 string remote-notification" "$PLIST"
+          echo "--- UIBackgroundModes ---"
+          /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes" "$PLIST"
 
       - name: Alarm-Sound ins App-Bundle (lauter Push-Ton)
         run: |
