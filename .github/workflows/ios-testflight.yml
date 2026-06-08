@@ -16,7 +16,7 @@ on:
 
 jobs:
   build:
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 50
     env:
       WORKSPACE: ios/App/App.xcworkspace
@@ -28,6 +28,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Neuestes Xcode auswählen (iOS 26 SDK)
+        run: |
+          NEWEST=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          [ -z "$NEWEST" ] && NEWEST=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
+          echo "Wähle: $NEWEST"
+          sudo xcode-select -s "$NEWEST/Contents/Developer"
+          xcodebuild -version
 
       - name: Node einrichten
         uses: actions/setup-node@v4
