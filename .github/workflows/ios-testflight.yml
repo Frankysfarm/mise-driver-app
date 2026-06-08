@@ -80,6 +80,15 @@ jobs:
           echo "--- Verknuepfungen im Projekt ---"
           grep -c "CODE_SIGN_ENTITLEMENTS = App/App.entitlements" "$PBX"
 
+      - name: AppDelegate APNs-Token an Capacitor weiterleiten (Push-Token-Fix)
+        run: |
+          AD="ios/App/App/AppDelegate.swift"
+          if ! grep -q "capacitorDidRegisterForRemoteNotifications" "$AD"; then
+            perl -0pi -e 's/\}(\s*)\z/\n    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {\n        NotificationCenter.default.post(name: .capacitorDidRegisterForRemoteNotifications, object: deviceToken)\n    }\n\n    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {\n        NotificationCenter.default.post(name: .capacitorDidFailToRegisterForRemoteNotifications, object: error)\n    }\n}\n/' "$AD"
+          fi
+          echo "--- AppDelegate Push-Methoden vorhanden? ---"
+          grep -c "capacitorDidRegisterForRemoteNotifications" "$AD"
+
       - name: Build-Nummer (datums-basiert) + Version setzen
         run: |
           PBX="ios/App/App.xcodeproj/project.pbxproj"
