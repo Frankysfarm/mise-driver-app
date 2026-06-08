@@ -54,6 +54,21 @@ jobs:
             --splashBackgroundColor '#09090b' --splashBackgroundColorDark '#09090b' || echo "icons skip"
           npx cap sync ios
 
+      - name: Privacy-Purpose-Strings in Info.plist setzen (ITMS-90683)
+        run: |
+          PLIST="ios/App/App/Info.plist"
+          set_key() {
+            /usr/libexec/PlistBuddy -c "Add :$1 string $2" "$PLIST" 2>/dev/null \
+              || /usr/libexec/PlistBuddy -c "Set :$1 $2" "$PLIST"
+          }
+          set_key NSPhotoLibraryUsageDescription "Mise Driver braucht Zugriff auf deine Fotos, um Liefer-Beweis-Fotos auszuwaehlen und hochzuladen."
+          set_key NSPhotoLibraryAddUsageDescription "Mise Driver speichert Liefer-Beweis-Fotos in deiner Mediathek."
+          set_key NSCameraUsageDescription "Mise Driver braucht die Kamera fuer QR-Login und Liefer-Beweis-Fotos."
+          set_key NSLocationWhenInUseUsageDescription "Mise Driver braucht deinen Standort, um Lieferzentrale und Kunden deine Position zu zeigen."
+          set_key NSLocationAlwaysAndWhenInUseUsageDescription "Mise Driver braucht Hintergrund-Standort fuer Live-Tracking waehrend der Lieferung."
+          echo "--- gesetzte Usage-Strings ---"
+          /usr/libexec/PlistBuddy -c "Print" "$PLIST" | grep -i Usage
+
       - name: Build-Nummer (datums-basiert) + Version setzen
         run: |
           PBX="ios/App/App.xcodeproj/project.pbxproj"
