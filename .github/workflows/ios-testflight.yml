@@ -106,22 +106,20 @@ jobs:
           echo -n "${{ secrets.APP_STORE_CONNECT_KEY_P8_BASE64 }}" | base64 --decode > ~/private_keys/AuthKey_${KEY_ID}.p8
           echo "Key geschrieben: AuthKey_${KEY_ID}.p8 ($(wc -c < ~/private_keys/AuthKey_${KEY_ID}.p8) bytes)"
 
-      - name: Archive (signiert via API-Key — Entitlements werden eingebacken)
+      - name: Archive (UNSIGNED — Distribution-Signing passiert beim Export)
         run: |
           xcodebuild -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
             -configuration Release \
             -destination 'generic/platform=iOS' \
             -archivePath "$RUNNER_TEMP/App.xcarchive" \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath ~/private_keys/AuthKey_${KEY_ID}.p8 \
-            -authenticationKeyID "$KEY_ID" \
-            -authenticationKeyIssuerID "$ISSUER_ID" \
             DEVELOPMENT_TEAM="$TEAM_ID" \
-            CODE_SIGN_STYLE=Automatic \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            PROVISIONING_PROFILE_SPECIFIER="" \
             clean archive
-          echo "--- Entitlements im Archiv ---"
-          codesign -d --entitlements - "$RUNNER_TEMP/App.xcarchive/Products/Applications/App.app" 2>/dev/null | grep -i aps-environment || echo "WARN: kein aps-environment im Archiv"
 
       - name: IPA exportieren
         run: |
@@ -144,6 +142,32 @@ jobs:
             -authenticationKeyPath ~/private_keys/AuthKey_${KEY_ID}.p8 \
             -authenticationKeyID "$KEY_ID" \
             -authenticationKeyIssuerID "$ISSUER_ID"
+
+      - name: aps-environment ins IPA nachsignieren (Push-Fix)
+        run: |
+          cd "$RUNNER_TEMP/export"
+          IPA=$(ls *.ipa | head -1)
+          echo "IPA: $IPA"
+          rm -rf resign && mkdir resign && cd resign
+          unzip -qq "../$IPA"
+          APP="Payload/App.app"
+          # vorhandene Entitlements als XML extrahieren
+          codesign -d --entitlements - --xml "$APP" > ent.plist 2>/dev/null || true
+          if ! grep -q "<plist" ent.plist 2>/dev/null; then
+            codesign -d --entitlements - "$APP" 2>/dev/null | plutil -convert xml1 - -o ent.plist || true
+          fi
+          echo "--- Entitlements vorher ---"; cat ent.plist || true
+          /usr/libexec/PlistBuddy -c "Add :aps-environment string production" ent.plist 2>/dev/null \
+            || /usr/libexec/PlistBuddy -c "Set :aps-environment production" ent.plist
+          # Distribution-Identitaet (SHA1-Hash) aus Keychain holen
+          IDENTITY=$(security find-identity -v -p codesigning | grep "Apple Distribution" | head -1 | awk '{print $2}')
+          echo "Signing-Identity-Hash: $IDENTITY"
+          codesign --force --sign "$IDENTITY" --entitlements ent.plist --preserve-metadata=identifier,flags,runtime --timestamp "$APP"
+          echo "--- Entitlements nachher ---"
+          codesign -d --entitlements - "$APP" 2>/dev/null | grep -i aps-environment && echo "OK: aps-environment drin"
+          rm -f "../$IPA"
+          zip -qqr "../$IPA" . -x ent.plist
+          echo "Re-signed: $RUNNER_TEMP/export/$IPA"
 
       - name: Upload zu TestFlight
         run: |
