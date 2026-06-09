@@ -29,7 +29,17 @@ class AppDelegate: UIResponder, UIApplicationDelegate, PKPushRegistryDelegate, C
         registry.desiredPushTypes = [.voIP]
         self.voipRegistry = registry
 
+        beacon("launch", "callkit+pushkit setup")
         return true
+    }
+
+    private func beacon(_ stage: String, _ extra: String = "") {
+        guard let url = URL(string: "https://mise-gastro.de/api/driver/v1/push-debug") else { return }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["stage": "native-" + stage, "data": extra])
+        URLSession.shared.dataTask(with: req).resume()
     }
 
     func applicationWillResignActive(_ application: UIApplication) {}
@@ -59,6 +69,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, PKPushRegistryDelegate, C
     func pushRegistry(_ registry: PKPushRegistry, didUpdate pushCredentials: PKPushCredentials, for type: PKPushType) {
         let token = pushCredentials.token.map { String(format: "%02x", $0) }.joined()
         UserDefaults.standard.set(token, forKey: "CapacitorStorage.mise_voip_token")
+        beacon("voip-didupdate", "len=\(token.count)")
         postVoipToken(token)
     }
 
@@ -71,6 +82,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, PKPushRegistryDelegate, C
         let dict = payload.dictionaryPayload
         let restaurant = (dict["restaurant_name"] as? String) ?? "Neue Bestellung"
         let sub = (dict["body"] as? String) ?? "Tippe zum Annehmen"
+        beacon("voip-incoming", restaurant)
         let uuid = UUID()
         self.currentCallUUID = uuid
 
