@@ -58,12 +58,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate, PKPushRegistryDelegate, C
     // MARK: - PushKit (VoIP)
     func pushRegistry(_ registry: PKPushRegistry, didUpdate pushCredentials: PKPushCredentials, for type: PKPushType) {
         let token = pushCredentials.token.map { String(format: "%02x", $0) }.joined()
-        UserDefaults.standard.set(token, forKey: "mise_voip_token")
+        UserDefaults.standard.set(token, forKey: "CapacitorStorage.mise_voip_token")
         postVoipToken(token)
     }
 
     func pushRegistry(_ registry: PKPushRegistry, didInvalidatePushTokenFor type: PKPushType) {
-        UserDefaults.standard.removeObject(forKey: "mise_voip_token")
+        UserDefaults.standard.removeObject(forKey: "CapacitorStorage.mise_voip_token")
     }
 
     // VoIP-Push empfangen -> SOFORT als eingehenden Anruf melden (iOS-13+-Pflicht)
