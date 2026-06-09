@@ -10,6 +10,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, PKPushRegistryDelegate, C
     var voipRegistry: PKPushRegistry?
     var callProvider: CXProvider?
     var currentCallUUID: UUID?
+    var currentBatchId: String?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         // CallKit: konfiguriert den eingehenden „Anruf" (Vollbild + Dauer-Klingeln)
@@ -83,6 +84,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, PKPushRegistryDelegate, C
         let restaurant = (dict["restaurant_name"] as? String) ?? "Neue Bestellung"
         let sub = (dict["body"] as? String) ?? "Tippe zum Annehmen"
         beacon("voip-incoming", restaurant)
+        self.currentBatchId = dict["batch_id"] as? String
         let uuid = UUID()
         self.currentCallUUID = uuid
 
@@ -117,11 +119,25 @@ class AppDelegate: UIResponder, UIApplicationDelegate, PKPushRegistryDelegate, C
     // Fahrer tippt „Annehmen" -> App in den Vordergrund holen (CallKit foregroundet automatisch),
     // dann Anruf beenden (wir wollten nur Klingeln + Öffnen).
     func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
+        // Anruf annehmen = Tour automatisch annehmen
+        acceptTour()
         action.fulfill()
         if let uuid = currentCallUUID {
             provider.reportCall(with: uuid, endedAt: Date(), reason: .remoteEnded)
             currentCallUUID = nil
         }
+    }
+
+    private func acceptTour() {
+        beacon("accept-tour", currentBatchId ?? "no-batch")
+        guard let access = UserDefaults.standard.string(forKey: "CapacitorStorage.mise_access_token"),
+              let url = URL(string: "https://mise-gastro.de/api/driver/v1/me/accept-tour") else { return }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("Bearer \(access)", forHTTPHeaderField: "Authorization")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["batch_id": currentBatchId ?? ""])
+        URLSession.shared.dataTask(with: req).resume()
     }
 
     // Fahrer lehnt ab / legt auf
