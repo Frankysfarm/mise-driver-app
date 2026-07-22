@@ -1,0 +1,69 @@
+name: TestFlight → Interne Tests freigeben
+
+on:
+  workflow_dispatch:
+
+jobs:
+  release:
+    runs-on: macos-latest
+    env:
+      KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+      ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+      APP_ID: "6766271119"
+    steps:
+      - name: JWT erzeugen + Build freigeben
+        env:
+          KEY_P8_B64: ${{ secrets.APP_STORE_CONNECT_KEY_P8_BASE64 }}
+        run: |
+          node - <<'EOF'
+          const crypto = require('crypto');
+
+          const keyPem = Buffer.from(process.env.KEY_P8_B64, 'base64').toString('utf8');
+          const keyId   = process.env.KEY_ID;
+          const issuerId = process.env.ISSUER_ID;
+          const appId    = process.env.APP_ID;
+
+          const hdr = Buffer.from(JSON.stringify({alg:'ES256',kid:keyId,typ:'JWT'})).toString('base64url');
+          const now = Math.floor(Date.now()/1000);
+          const pld = Buffer.from(JSON.stringify({iss:issuerId,iat:now,exp:now+1100,aud:'appstoreconnect-v1'})).toString('base64url');
+          const msg = `${hdr}.${pld}`;
+          const sign = crypto.createSign('SHA256');
+          sign.update(msg);
+          const sig = sign.sign({key:keyPem,dsaEncoding:'ieee-p1363'}).toString('base64url');
+          const jwt = `${msg}.${sig}`;
+
+          async function api(path, method='GET', body=null) {
+            const r = await fetch(`https://api.appstoreconnect.apple.com${path}`, {
+              method,
+              headers: {'Authorization':`Bearer ${jwt}`,'Content-Type':'application/json'},
+              ...(body ? {body:JSON.stringify(body)} : {}),
+            });
+            const text = await r.text();
+            console.log(`${method} ${path} → ${r.status}`);
+            if (text) console.log(text.slice(0,500));
+            return r.status < 300 ? JSON.parse(text||'{}') : null;
+          }
+
+          (async () => {
+            // Neuesten gültigen Build holen
+            const builds = await api(`/v1/apps/${appId}/builds?filter[processingState]=VALID&sort=-uploadedDate&limit=1`);
+            if (!builds?.data?.length) { console.error('Kein verarbeiteter Build gefunden'); process.exit(1); }
+            const buildId = builds.data[0].id;
+            const version = builds.data[0].attributes?.version;
+            console.log(`Build gefunden: ${buildId} (${version})`);
+
+            // Interne Testgruppe holen
+            const groups = await api(`/v1/apps/${appId}/betaGroups?filter[isInternalGroup]=true&limit=1`);
+            if (!groups?.data?.length) { console.error('Keine interne Gruppe gefunden'); process.exit(1); }
+            const groupId = groups.data[0].id;
+            const groupName = groups.data[0].attributes?.name;
+            console.log(`Gruppe: ${groupId} (${groupName})`);
+
+            // Build zur Gruppe hinzufügen
+            await api(`/v1/betaGroups/${groupId}/relationships/builds`, 'POST', {
+              data: [{id:buildId,type:'builds'}]
+            });
+
+            console.log('✅ Build freigegeben!');
+          })();
+          EOF
