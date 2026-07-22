@@ -97,6 +97,7 @@ jobs:
           /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes array" "$PLIST"
           /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:0 string voip" "$PLIST"
           /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:1 string remote-notification" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:2 string location" "$PLIST"
           echo "--- UIBackgroundModes ---"
           /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes" "$PLIST"
 

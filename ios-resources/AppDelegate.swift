@@ -71,7 +71,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate, PKPushRegistryDelegate, C
         let token = pushCredentials.token.map { String(format: "%02x", $0) }.joined()
         UserDefaults.standard.set(token, forKey: "CapacitorStorage.mise_voip_token")
         beacon("voip-didupdate", "len=\(token.count)")
-        postVoipToken(token)
+        // Retry bis zu 5x (Token feuert oft vor Login → access_token noch nicht gesetzt)
+        postVoipTokenWithRetry(token, attemptsLeft: 5)
     }
 
     func pushRegistry(_ registry: PKPushRegistry, didInvalidatePushTokenFor type: PKPushType) {
@@ -102,42 +103,42 @@ class AppDelegate: UIResponder, UIApplicationDelegate, PKPushRegistryDelegate, C
         }
     }
 
-    private func postVoipToken(_ token: String) {
+    private func postVoipTokenWithRetry(_ token: String, attemptsLeft: Int) {
         guard let access = UserDefaults.standard.string(forKey: "CapacitorStorage.mise_access_token"),
-              let url = URL(string: "https://mise-gastro.de/api/driver/v1/me/voip-token-save") else { return }
+              let url = URL(string: "https://mise-gastro.de/api/driver/v1/me/voip-token-save") else {
+            if attemptsLeft > 0 {
+                // Noch kein Login — 10s warten, dann erneut versuchen
+                DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
+                    self?.postVoipTokenWithRetry(token, attemptsLeft: attemptsLeft - 1)
+                }
+                beacon("voip-token-retry", "left=\(attemptsLeft)")
+            } else {
+                beacon("voip-token-failed", "no-access-token-after-retries")
+            }
+            return
+        }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue("Bearer \(access)", forHTTPHeaderField: "Authorization")
         req.httpBody = try? JSONSerialization.data(withJSONObject: ["voip_push_token": token])
         URLSession.shared.dataTask(with: req).resume()
+        beacon("voip-token-sent", "ok")
     }
 
     // MARK: - CallKit Delegate
     func providerDidReset(_ provider: CXProvider) {}
 
     // Fahrer tippt „Annehmen" -> App in den Vordergrund holen (CallKit foregroundet automatisch),
-    // dann Anruf beenden (wir wollten nur Klingeln + Öffnen).
+    // Anruf sofort beenden damit CallKit-UI verschwindet. Die Web-UI macht den eigentlichen Claim
+    // via visibilitychange-Reload → kein Race mit dem nativen acceptTour-Pfad.
     func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
-        // Anruf annehmen = Tour automatisch annehmen
-        acceptTour()
+        beacon("callkit-answered", currentBatchId ?? "no-batch")
         action.fulfill()
         if let uuid = currentCallUUID {
             provider.reportCall(with: uuid, endedAt: Date(), reason: .remoteEnded)
             currentCallUUID = nil
         }
-    }
-
-    private func acceptTour() {
-        beacon("accept-tour", currentBatchId ?? "no-batch")
-        guard let access = UserDefaults.standard.string(forKey: "CapacitorStorage.mise_access_token"),
-              let url = URL(string: "https://mise-gastro.de/api/driver/v1/me/accept-tour") else { return }
-        var req = URLRequest(url: url)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.setValue("Bearer \(access)", forHTTPHeaderField: "Authorization")
-        req.httpBody = try? JSONSerialization.data(withJSONObject: ["batch_id": currentBatchId ?? ""])
-        URLSession.shared.dataTask(with: req).resume()
     }
 
     // Fahrer lehnt ab / legt auf
