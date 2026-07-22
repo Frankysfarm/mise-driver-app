@@ -45,8 +45,8 @@ jobs:
           }
 
           (async () => {
-            // Neuesten gültigen Build holen
-            const builds = await api(`/v1/apps/${appId}/builds?filter[processingState]=VALID&sort=-uploadedDate&limit=1`);
+            // Neuesten Build holen
+            const builds = await api(`/v1/builds?filter[app]=${appId}&sort=-uploadedDate&limit=1`);
             if (!builds?.data?.length) { console.error('Kein verarbeiteter Build gefunden'); process.exit(1); }
             const buildId = builds.data[0].id;
             const version = builds.data[0].attributes?.version;
