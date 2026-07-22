@@ -52,11 +52,13 @@ jobs:
             const version = builds.data[0].attributes?.version;
             console.log(`Build gefunden: ${buildId} (${version})`);
 
-            // Interne Testgruppe holen
-            const groups = await api(`/v1/apps/${appId}/betaGroups?filter[isInternalGroup]=true&limit=1`);
-            if (!groups?.data?.length) { console.error('Keine interne Gruppe gefunden'); process.exit(1); }
-            const groupId = groups.data[0].id;
-            const groupName = groups.data[0].attributes?.name;
+            // Alle Testgruppen holen, interne filtern
+            const groups = await api(`/v1/betaGroups?filter[app]=${appId}&limit=20`);
+            if (!groups?.data?.length) { console.error('Keine Gruppe gefunden'); process.exit(1); }
+            const internal = groups.data.find(g => g.attributes?.isInternalGroup === true);
+            if (!internal) { console.error('Keine interne Gruppe gefunden. Gruppen:', JSON.stringify(groups.data.map(g=>({id:g.id,name:g.attributes?.name,internal:g.attributes?.isInternalGroup})))); process.exit(1); }
+            const groupId = internal.id;
+            const groupName = internal.attributes?.name;
             console.log(`Gruppe: ${groupId} (${groupName})`);
 
             // Build zur Gruppe hinzufügen
