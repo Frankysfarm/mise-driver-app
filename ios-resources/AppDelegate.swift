@@ -105,7 +105,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, PKPushRegistryDelegate, C
 
     private func postVoipTokenWithRetry(_ token: String, attemptsLeft: Int) {
         guard let access = UserDefaults.standard.string(forKey: "CapacitorStorage.mise_access_token"),
-              let url = URL(string: "https://mise-gastro.de/api/driver/v1/me/voip-token-save") else {
+              let url = URL(string: "https://mise-gastro.de/api/driver/v1/me/voip-token") else {
             if attemptsLeft > 0 {
                 // Noch kein Login — 10s warten, dann erneut versuchen
                 DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
@@ -121,7 +121,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, PKPushRegistryDelegate, C
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue("Bearer \(access)", forHTTPHeaderField: "Authorization")
-        req.httpBody = try? JSONSerialization.data(withJSONObject: ["voip_push_token": token])
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["token": token])
         URLSession.shared.dataTask(with: req).resume()
         beacon("voip-token-sent", "ok")
     }
