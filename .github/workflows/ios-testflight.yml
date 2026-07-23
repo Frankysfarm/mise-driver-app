@@ -3,13 +3,15 @@ name: iOS → TestFlight
 # Baut die Mise-Driver-App in der Cloud (Apple-Rechner bei GitHub) und lädt sie
 # direkt zu TestFlight hoch. KEIN lokaler Mac / Xcode nötig.
 #
-# EINMALIG nötig (3 GitHub-Secrets unter: Repo → Settings → Secrets and variables → Actions):
-#   APP_STORE_CONNECT_KEY_ID        = die 10-stellige Key-ID
-#   APP_STORE_CONNECT_ISSUER_ID     = die Issuer-ID (UUID)
-#   APP_STORE_CONNECT_KEY_P8_BASE64 = der .p8-Key, base64-kodiert
-#         (Mac/Terminal:  base64 -i AuthKey_XXXX.p8 | pbcopy  → einfügen)
+# Secrets (Repo → Settings → Secrets and variables → Actions):
+#   APP_STORE_CONNECT_KEY_ID        = 10-stellige Key-ID
+#   APP_STORE_CONNECT_ISSUER_ID     = Issuer-ID (UUID)
+#   APP_STORE_CONNECT_KEY_P8_BASE64 = .p8-Key, base64-kodiert
+#   BUILD_CERT_P12_BASE64           = Apple Distribution Zertifikat (.p12, base64)
+#   BUILD_CERT_PASSWORD             = Passwort für das .p12
+#   BUILD_PROFILE_BASE64            = Provisioning Profile (.mobileprovision, base64)
 #
-# Starten:  Repo → Tab "Actions" → "iOS → TestFlight" → "Run workflow".
+# Starten: Repo → Actions → "iOS → TestFlight" → "Run workflow"
 
 on:
   workflow_dispatch:
@@ -66,28 +68,29 @@ jobs:
           set_key NSLocationWhenInUseUsageDescription "Mise Driver braucht deinen Standort, um Lieferzentrale und Kunden deine Position zu zeigen."
           set_key NSLocationAlwaysAndWhenInUseUsageDescription "Mise Driver braucht Hintergrund-Standort fuer Live-Tracking waehrend der Lieferung."
 
-      - name: Push-Entitlement + VoIP-Background-Mode setzen
+      - name: Push-Entitlement setzen (aps-environment) + manuelles Signing
         run: |
-          # aps-environment Entitlement
           ENT="ios/App/App/App.entitlements"
           printf '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>aps-environment</key><string>production</string></dict></plist>\n' > "$ENT"
           PBX="ios/App/App.xcodeproj/project.pbxproj"
-          # Entitlements-Datei + Team setzen (automatic signing bleibt erhalten)
-          perl -i -pe 's/(PRODUCT_BUNDLE_IDENTIFIER = app\.mise\.driver;)/$1\n\t\t\t\tCODE_SIGN_ENTITLEMENTS = App\/App.entitlements;\n\t\t\t\tDEVELOPMENT_TEAM = T82KC2CU9V;/g' "$PBX"
-          echo "Entitlements gesetzt"
-          # VoIP + remote-notification + location Background-Modes
+          perl -i -pe 's/(PRODUCT_BUNDLE_IDENTIFIER = app\.mise\.driver;)/$1\n\t\t\t\tCODE_SIGN_ENTITLEMENTS = App\/App.entitlements;/g' "$PBX"
+          perl -i -pe 's/CODE_SIGN_STYLE = Automatic;/CODE_SIGN_STYLE = Manual;\n\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = "Mise Driver AppStore CI";\n\t\t\t\tCODE_SIGN_IDENTITY = "Apple Distribution";\n\t\t\t\tDEVELOPMENT_TEAM = T82KC2CU9V;/g' "$PBX"
+          echo "Signing-Settings gesetzt"
+
+      - name: AppDelegate ersetzen (PushKit/VoIP + CallKit)
+        run: |
+          cp ios-resources/AppDelegate.swift ios/App/App/AppDelegate.swift
+          grep -c "PKPushRegistry\|CXProvider\|capacitorDidRegisterForRemoteNotifications" ios/App/App/AppDelegate.swift
+
+      - name: VoIP-Background-Mode in Info.plist
+        run: |
           PLIST="ios/App/App/Info.plist"
           /usr/libexec/PlistBuddy -c "Delete :UIBackgroundModes" "$PLIST" 2>/dev/null || true
           /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes array" "$PLIST"
           /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:0 string voip" "$PLIST"
           /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:1 string remote-notification" "$PLIST"
           /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:2 string location" "$PLIST"
-          echo "UIBackgroundModes: $(/usr/libexec/PlistBuddy -c 'Print :UIBackgroundModes' "$PLIST")"
-
-      - name: AppDelegate ersetzen (PushKit/VoIP + CallKit)
-        run: |
-          cp ios-resources/AppDelegate.swift ios/App/App/AppDelegate.swift
-          grep -c "PKPushRegistry\|CXProvider\|capacitorDidRegisterForRemoteNotifications" ios/App/App/AppDelegate.swift
+          echo "UIBackgroundModes OK"
 
       - name: Alarm-Sound ins App-Bundle
         run: |
@@ -122,27 +125,44 @@ jobs:
           mkdir -p ~/private_keys
           echo -n "${{ secrets.APP_STORE_CONNECT_KEY_P8_BASE64 }}" | base64 --decode \
             > ~/private_keys/AuthKey_${KEY_ID}.p8
-          echo "Key: AuthKey_${KEY_ID}.p8 ($(wc -c < ~/private_keys/AuthKey_${KEY_ID}.p8) bytes)"
+          echo "Key: $(wc -c < ~/private_keys/AuthKey_${KEY_ID}.p8) bytes"
 
-      - name: Archive (automatic signing via ASC API Key)
+      - name: Distribution-Zertifikat + Profil installieren
+        env:
+          P12_BASE64: ${{ secrets.BUILD_CERT_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.BUILD_CERT_PASSWORD }}
+          PROFILE_BASE64: ${{ secrets.BUILD_PROFILE_BASE64 }}
+        run: |
+          KC="$RUNNER_TEMP/build.keychain-db"
+          KCPW="ci-temp-pw"
+          security create-keychain -p "$KCPW" "$KC"
+          security set-keychain-settings -lut 21600 "$KC"
+          security unlock-keychain -p "$KCPW" "$KC"
+          echo -n "$P12_BASE64" | base64 --decode > "$RUNNER_TEMP/dist.p12"
+          security import "$RUNNER_TEMP/dist.p12" -k "$KC" -P "$P12_PASSWORD" \
+            -A -T /usr/bin/codesign -T /usr/bin/xcodebuild
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KCPW" "$KC" >/dev/null
+          security list-keychains -d user -s "$KC" $(security list-keychains -d user | sed s/\"//g)
+          echo "--- Signing-Identitaeten ---"
+          security find-identity -v -p codesigning "$KC"
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          echo -n "$PROFILE_BASE64" | base64 --decode \
+            > ~/Library/MobileDevice/Provisioning\ Profiles/mise-driver-appstore.mobileprovision
+          echo "Profil installiert"
+
+      - name: Archive
         run: |
           xcodebuild -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
             -configuration Release \
             -destination 'generic/platform=iOS' \
             -archivePath "$RUNNER_TEMP/App.xcarchive" \
-            -authenticationKeyPath ~/private_keys/AuthKey_${KEY_ID}.p8 \
-            -authenticationKeyID "$KEY_ID" \
-            -authenticationKeyIssuerID "$ISSUER_ID" \
-            -allowProvisioningUpdates \
-            DEVELOPMENT_TEAM="$TEAM_ID" \
-            CODE_SIGN_STYLE=Automatic \
             clean archive
           codesign -d --entitlements - \
             "$RUNNER_TEMP/App.xcarchive/Products/Applications/App.app" 2>/dev/null \
-            | grep -i aps-environment && echo "aps-environment OK" || echo "WARN: kein aps-environment"
+            | grep -i aps-environment && echo "aps-environment OK" || echo "WARN: fehlt"
 
-      - name: IPA exportieren (automatic signing)
+      - name: IPA exportieren
         run: |
           cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
@@ -150,7 +170,11 @@ jobs:
           <plist version="1.0"><dict>
             <key>method</key><string>app-store-connect</string>
             <key>teamID</key><string>${TEAM_ID}</string>
-            <key>signingStyle</key><string>automatic</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>signingCertificate</key><string>Apple Distribution</string>
+            <key>provisioningProfiles</key><dict>
+              <key>app.mise.driver</key><string>Mise Driver AppStore CI</string>
+            </dict>
             <key>destination</key><string>export</string>
             <key>uploadSymbols</key><true/>
           </dict></plist>
@@ -158,11 +182,7 @@ jobs:
           xcodebuild -exportArchive \
             -archivePath "$RUNNER_TEMP/App.xcarchive" \
             -exportPath "$RUNNER_TEMP/export" \
-            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
-            -authenticationKeyPath ~/private_keys/AuthKey_${KEY_ID}.p8 \
-            -authenticationKeyID "$KEY_ID" \
-            -authenticationKeyIssuerID "$ISSUER_ID" \
-            -allowProvisioningUpdates
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist"
 
       - name: Upload zu TestFlight
         run: |
