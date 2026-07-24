@@ -77,6 +77,40 @@ npx @capacitor/assets generate --ios \
 echo "▸ 5/7 — Capacitor sync..."
 npx cap sync ios
 
+# Step 5b: alarm.caf + AppDelegate ins iOS-Projekt kopieren und in Xcode-Projekt eintragen
+echo "▸ 5b — Sound-Datei (alarm.caf) + AppDelegate einrichten..."
+APP_DIR="ios/App/App"
+PBX_FILE="ios/App/App.xcodeproj/project.pbxproj"
+
+# alarm.caf kopieren
+if [ -f "ios-resources/alarm.caf" ] && [ -d "$APP_DIR" ]; then
+  cp "ios-resources/alarm.caf" "$APP_DIR/alarm.caf"
+  echo "  ✓ alarm.caf nach $APP_DIR kopiert"
+else
+  echo "  ⚠ alarm.caf oder App-Ordner nicht gefunden"
+fi
+
+# AppDelegate.swift kopieren (enthält ringtoneSound = "alarm.caf")
+if [ -f "ios-resources/AppDelegate.swift" ] && [ -d "$APP_DIR" ]; then
+  cp "ios-resources/AppDelegate.swift" "$APP_DIR/AppDelegate.swift"
+  echo "  ✓ AppDelegate.swift (mit VoIP-Ringtone-Config) kopiert"
+fi
+
+# alarm.caf in project.pbxproj eintragen (idempotent: nur wenn noch nicht vorhanden)
+if [ -f "$PBX_FILE" ] && ! grep -q "alarm.caf" "$PBX_FILE"; then
+  # PBXBuildFile
+  sed -i '' 's/MISE008BB0002CALLKIT0004 \/\* CallKit.framework in Frameworks \*\/ = {isa = PBXBuildFile;/MISE00CC0001ALARM0CAF002 \/* alarm.caf in Resources *\/ = {isa = PBXBuildFile; fileRef = MISE00CC0001ALARM0CAF001 \/* alarm.caf *\/; };\n\t\tMISE008BB0002CALLKIT0004 \/* CallKit.framework in Frameworks *\/ = {isa = PBXBuildFile;/' "$PBX_FILE"
+  # PBXFileReference
+  sed -i '' 's/MISE008AA0002CALLKIT0003 \/\* CallKit.framework \*\/ = {isa = PBXFileReference;/MISE00CC0001ALARM0CAF001 \/* alarm.caf *\/ = {isa = PBXFileReference; lastKnownFileType = audio.aiff-c; path = alarm.caf; sourceTree = "<group>"; };\n\t\tMISE008AA0002CALLKIT0003 \/* CallKit.framework *\/ = {isa = PBXFileReference;/' "$PBX_FILE"
+  # PBXGroup (App)
+  sed -i '' 's/2FAD9762203C412B000D30F8 \/\* config.xml \*\/,/2FAD9762203C412B000D30F8 \/* config.xml *\/,\n\t\t\t\tMISE00CC0001ALARM0CAF001 \/* alarm.caf *\/,/' "$PBX_FILE"
+  # PBXResourcesBuildPhase
+  sed -i '' 's/2FAD9763203C412B000D30F8 \/\* config.xml in Resources \*\/,/2FAD9763203C412B000D30F8 \/* config.xml in Resources *\/,\n\t\t\t\tMISE00CC0001ALARM0CAF002 \/* alarm.caf in Resources *\/,/' "$PBX_FILE"
+  echo "  ✓ alarm.caf in project.pbxproj eingetragen"
+else
+  echo "  → alarm.caf bereits in project.pbxproj"
+fi
+
 # Step 6: Build-Nummer + Version setzen
 # WICHTIG: 'cap add ios' erzeugt IMMER Build-Nummer 1. Auf der App-Store-Connect-App
 # (app.mise.driver) existierten aber schon Builds bis 14 — ein Upload mit Build 1 (oder
