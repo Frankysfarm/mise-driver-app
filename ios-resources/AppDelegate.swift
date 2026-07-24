@@ -116,7 +116,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate, PKPushRegistryDelegate, C
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
         bridgeOffer(from: notification.request.content.userInfo, stage: "displayed")
-        completionHandler([.banner, .sound, .badge])
+        if #available(iOS 14.0, *) {
+            completionHandler([.banner, .sound, .badge])
+        } else {
+            completionHandler([.alert, .sound, .badge])
+        }
     }
 
     func userNotificationCenter(
