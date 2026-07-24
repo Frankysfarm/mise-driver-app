@@ -44,7 +44,10 @@ jobs:
           node-version: 20
 
       - name: JS-Dependencies
-        run: npm install
+        run: npm ci
+
+      - name: iOS Offer-Vertrag testen
+        run: bash ios-contract-tests/run.sh
 
       - name: iOS-Projekt erzeugen + sync
         run: |
@@ -80,7 +83,9 @@ jobs:
       - name: AppDelegate ersetzen (PushKit/VoIP + CallKit)
         run: |
           cp ios-resources/AppDelegate.swift ios/App/App/AppDelegate.swift
+          cp ios-resources/OfferContract.swift ios/App/App/OfferContract.swift
           grep -c "PKPushRegistry\|CXProvider\|capacitorDidRegisterForRemoteNotifications" ios/App/App/AppDelegate.swift
+          grep -q "struct OfferEnvelope" ios/App/App/OfferContract.swift
 
       - name: VoIP-Background-Mode in Info.plist
         run: |
@@ -90,6 +95,9 @@ jobs:
           /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:0 string voip" "$PLIST"
           /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:1 string remote-notification" "$PLIST"
           /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:2 string location" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Delete :MiseLegacyVoipOffersEnabled" "$PLIST" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :MiseLegacyVoipOffersEnabled bool true" "$PLIST"
+          python3 scripts/ensure_url_scheme.py "$PLIST"
           echo "UIBackgroundModes OK"
 
       - name: Alarm-Sound ins App-Bundle
@@ -101,12 +109,20 @@ jobs:
             proj = Xcodeproj::Project.open("ios/App/App.xcodeproj")
             target = proj.targets.find { |t| t.name == "App" }
             grp = proj.main_group.find_subpath("App", true)
-            unless grp.files.any? { |f| f.path == "alarm.caf" }
-              ref = grp.new_reference("alarm.caf")
+            alarm_ref = grp.files.find { |f| f.path == "alarm.caf" } || grp.new_reference("alarm.caf")
+            unless target.resources_build_phase.files_references.include?(alarm_ref)
+              ref = alarm_ref
               target.resources_build_phase.add_file_reference(ref)
-              proj.save
             end
-            puts "alarm.caf in Resources"
+            offer_ref = grp.files.find { |f| f.path == "OfferContract.swift" } || grp.new_reference("OfferContract.swift")
+            unless target.source_build_phase.files_references.include?(offer_ref)
+              ref = offer_ref
+              target.source_build_phase.add_file_reference(ref)
+            end
+            abort "alarm.caf missing from Resources" unless target.resources_build_phase.files_references.include?(alarm_ref)
+            abort "OfferContract.swift missing from Sources" unless target.source_build_phase.files_references.include?(offer_ref)
+            proj.save
+            puts "alarm.caf in Resources; OfferContract.swift in Sources"
           '
 
       - name: Build-Nummer (datums-basiert) + Version setzen
@@ -158,9 +174,16 @@ jobs:
             -destination 'generic/platform=iOS' \
             -archivePath "$RUNNER_TEMP/App.xcarchive" \
             clean archive
-          codesign -d --entitlements - \
-            "$RUNNER_TEMP/App.xcarchive/Products/Applications/App.app" 2>/dev/null \
-            | grep -i aps-environment && echo "aps-environment OK" || echo "WARN: fehlt"
+          APP="$RUNNER_TEMP/App.xcarchive/Products/Applications/App.app"
+          codesign -d --entitlements :- "$APP" > "$RUNNER_TEMP/archive-entitlements.plist"
+          /usr/libexec/PlistBuddy -c "Print :aps-environment" "$RUNNER_TEMP/archive-entitlements.plist" \
+            | grep -qx "production"
+          test -s "$APP/alarm.caf"
+          /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes" "$APP/Info.plist" | grep -q "remote-notification"
+          /usr/libexec/PlistBuddy -c "Print :MiseLegacyVoipOffersEnabled" "$APP/Info.plist" | grep -qx "true"
+          python3 scripts/ensure_url_scheme.py --check "$APP/Info.plist"
+          strings "$APP/App" | grep -q "mise-driver-offer"
+          echo "Archive-Vertrag OK"
 
       - name: IPA exportieren
         run: |

@@ -58,6 +58,11 @@ if [ -f "$INFO" ]; then
   /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes array" "$INFO"
   /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:0 string location" "$INFO"
   /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:1 string remote-notification" "$INFO"
+  /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:2 string voip" "$INFO"
+
+  /usr/libexec/PlistBuddy -c "Delete :MiseLegacyVoipOffersEnabled" "$INFO" 2>/dev/null || true
+  /usr/libexec/PlistBuddy -c "Add :MiseLegacyVoipOffersEnabled bool true" "$INFO"
+  python3 scripts/ensure_url_scheme.py "$INFO"
 
   echo "  ✓ Permissions gesetzt"
 fi
@@ -93,22 +98,32 @@ fi
 # AppDelegate.swift kopieren (enthält ringtoneSound = "alarm.caf")
 if [ -f "ios-resources/AppDelegate.swift" ] && [ -d "$APP_DIR" ]; then
   cp "ios-resources/AppDelegate.swift" "$APP_DIR/AppDelegate.swift"
+  cp "ios-resources/OfferContract.swift" "$APP_DIR/OfferContract.swift"
   echo "  ✓ AppDelegate.swift (mit VoIP-Ringtone-Config) kopiert"
 fi
 
-# alarm.caf in project.pbxproj eintragen (idempotent: nur wenn noch nicht vorhanden)
-if [ -f "$PBX_FILE" ] && ! grep -q "alarm.caf" "$PBX_FILE"; then
-  # PBXBuildFile
-  sed -i '' 's/MISE008BB0002CALLKIT0004 \/\* CallKit.framework in Frameworks \*\/ = {isa = PBXBuildFile;/MISE00CC0001ALARM0CAF002 \/* alarm.caf in Resources *\/ = {isa = PBXBuildFile; fileRef = MISE00CC0001ALARM0CAF001 \/* alarm.caf *\/; };\n\t\tMISE008BB0002CALLKIT0004 \/* CallKit.framework in Frameworks *\/ = {isa = PBXBuildFile;/' "$PBX_FILE"
-  # PBXFileReference
-  sed -i '' 's/MISE008AA0002CALLKIT0003 \/\* CallKit.framework \*\/ = {isa = PBXFileReference;/MISE00CC0001ALARM0CAF001 \/* alarm.caf *\/ = {isa = PBXFileReference; lastKnownFileType = audio.aiff-c; path = alarm.caf; sourceTree = "<group>"; };\n\t\tMISE008AA0002CALLKIT0003 \/* CallKit.framework *\/ = {isa = PBXFileReference;/' "$PBX_FILE"
-  # PBXGroup (App)
-  sed -i '' 's/2FAD9762203C412B000D30F8 \/\* config.xml \*\/,/2FAD9762203C412B000D30F8 \/* config.xml *\/,\n\t\t\t\tMISE00CC0001ALARM0CAF001 \/* alarm.caf *\/,/' "$PBX_FILE"
-  # PBXResourcesBuildPhase
-  sed -i '' 's/2FAD9763203C412B000D30F8 \/\* config.xml in Resources \*\/,/2FAD9763203C412B000D30F8 \/* config.xml in Resources *\/,\n\t\t\t\tMISE00CC0001ALARM0CAF002 \/* alarm.caf in Resources *\/,/' "$PBX_FILE"
-  echo "  ✓ alarm.caf in project.pbxproj eingetragen"
-else
-  echo "  → alarm.caf bereits in project.pbxproj"
+# alarm.caf und OfferContract robust/idempotent ins Xcode-Projekt eintragen
+if [ -f "$PBX_FILE" ]; then
+  USER_GEM_HOME="$(ruby -e 'puts Gem.user_dir')"
+  gem install --user-install xcodeproj --no-document --silent
+  GEM_HOME="$USER_GEM_HOME" ruby -e '
+    require "xcodeproj"
+    proj = Xcodeproj::Project.open("ios/App/App.xcodeproj")
+    target = proj.targets.find { |t| t.name == "App" }
+    grp = proj.main_group.find_subpath("App", true)
+    alarm_ref = grp.files.find { |f| f.path == "alarm.caf" } || grp.new_reference("alarm.caf")
+    unless target.resources_build_phase.files_references.include?(alarm_ref)
+      target.resources_build_phase.add_file_reference(alarm_ref)
+    end
+    offer_ref = grp.files.find { |f| f.path == "OfferContract.swift" } || grp.new_reference("OfferContract.swift")
+    unless target.source_build_phase.files_references.include?(offer_ref)
+      target.source_build_phase.add_file_reference(offer_ref)
+    end
+    abort "alarm.caf missing from Resources" unless target.resources_build_phase.files_references.include?(alarm_ref)
+    abort "OfferContract.swift missing from Sources" unless target.source_build_phase.files_references.include?(offer_ref)
+    proj.save
+  '
+  echo "  ✓ alarm.caf + OfferContract.swift im Xcode-Projekt"
 fi
 
 # Step 6: Build-Nummer + Version setzen
