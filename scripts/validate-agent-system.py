@@ -8,15 +8,39 @@ syntax, and required files.
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 ROOT = Path(__file__).resolve().parents[1]
 ERRORS: list[str] = []
 WARNINGS: list[str] = []
+
+# Only project-owned source files belong to scaffold validation. Dependency
+# trees, nested Claude worktrees and generated output can contain arbitrary
+# third-party JSON/YAML/Python and must not affect this repository's result.
+EXCLUDED_DIRECTORY_NAMES = {
+    ".cache",
+    ".git",
+    ".gradle",
+    ".next",
+    ".pytest_cache",
+    ".turbo",
+    ".venv",
+    "__pycache__",
+    "build",
+    "coverage",
+    "DerivedData",
+    "dist",
+    "node_modules",
+    "out",
+    "Pods",
+    "venv",
+}
+EXCLUDED_DIRECTORY_PATHS = {Path(".claude/worktrees")}
 
 
 def error(message: str) -> None:
@@ -25,6 +49,30 @@ def error(message: str) -> None:
 
 def warning(message: str) -> None:
     WARNINGS.append(message)
+
+
+def is_excluded_directory(path: Path) -> bool:
+    relative = path.relative_to(ROOT)
+    return (
+        path.name in EXCLUDED_DIRECTORY_NAMES
+        or relative in EXCLUDED_DIRECTORY_PATHS
+    )
+
+
+def project_files(*suffixes: str) -> Iterator[Path]:
+    """Yield source-tree files without descending into generated trees."""
+    wanted = set(suffixes)
+    for current, directories, filenames in os.walk(ROOT):
+        current_path = Path(current)
+        directories[:] = sorted(
+            directory
+            for directory in directories
+            if not is_excluded_directory(current_path / directory)
+        )
+        for filename in sorted(filenames):
+            path = current_path / filename
+            if path.suffix in wanted:
+                yield path
 
 
 def parse_frontmatter(path: Path) -> dict[str, Any]:
@@ -119,12 +167,12 @@ def validate_skills() -> None:
 
 
 def validate_data_files() -> None:
-    for path in sorted(ROOT.rglob("*.json")):
+    for path in project_files(".json"):
         try:
             json.loads(path.read_text(encoding="utf-8"))
         except Exception as exc:
             error(f"{path.relative_to(ROOT)}: ungültiges JSON: {exc}")
-    yaml_paths = sorted(ROOT.rglob("*.yaml")) + sorted(ROOT.rglob("*.yml"))
+    yaml_paths = list(project_files(".yaml", ".yml"))
     try:
         import yaml  # type: ignore
     except ImportError:
@@ -145,7 +193,7 @@ def validate_scripts() -> None:
         )
         if proc.returncode:
             error(f"{path.relative_to(ROOT)}: Bash-Syntaxfehler: {proc.stderr.strip()}")
-    for path in sorted(ROOT.rglob("*.py")):
+    for path in project_files(".py"):
         try:
             compile(path.read_text(encoding="utf-8"), str(path), "exec")
         except SyntaxError as exc:
