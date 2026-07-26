@@ -1,0 +1,313 @@
+version: 1
+defaults:
+  timezone: UTC
+  seed: 424242
+  simulation_horizon_minutes: 180
+  hard_invariants:
+  - max_one_active_assignment_per_order
+  - pickup_before_dropoff
+  - no_offer_to_offline_or_stale_driver
+  - no_hold_past_latest_safe_departure
+  - terminal_delivery_is_monotonic
+  - every_decision_has_audit_record
+scenarios:
+- id: HAPPY-001
+  name: Einzelne nahe Order, ein verfügbarer Fahrer
+  tags:
+  - happy-path
+  - single-order
+  setup:
+    orders: 1
+    drivers: 1
+    driver_state: AVAILABLE
+  events:
+  - order.confirmed
+  - order.ready
+  - driver.location.fresh
+  expect:
+  - offer_created_within_budget
+  - driver_ack_activates_assignment
+  - order_delivered_exactly_once
+- id: BUNDLE-001
+  name: Zwei Orders im selben Korridor
+  tags:
+  - batching
+  - corridor
+  setup:
+    orders: 2
+    drivers: 1
+    dropoffs_share_route: true
+  expect:
+  - both_orders_feasible
+  - shared_distance_improves_vs_separate
+  - no_promised_window_violation
+- id: REMOTE-001
+  name: Fernorder wartet kurz und erhält passende zweite Order
+  tags:
+  - remote
+  - holding
+  - bundle
+  setup:
+    first_order_distance_km: 14
+    second_order_arrives_after_seconds: 90
+    same_corridor: true
+  expect:
+  - first_order_hold_has_deadline_and_reason
+  - second_order_triggers_recompute
+  - combined_route_respects_quality_and_promises
+- id: REMOTE-002
+  name: Fernorder ohne Folgeorder startet spätestens sicher
+  tags:
+  - remote
+  - holding
+  - deadline
+  setup:
+    matching_future_order: false
+  expect:
+  - no_hold_past_latest_safe_departure
+  - order_is_offered_or_manual_before_deadline
+  - no_indefinite_wait
+- id: REMOTE-003
+  name: Fernorder strukturell unzulässig oder unprofitabel
+  tags:
+  - remote
+  - admission-control
+  setup:
+    no_feasible_route_within_promise: true
+  expect:
+  - no_fake_feasible_assignment
+  - order_moves_to_scheduled_or_manual_policy
+  - clear_reason_code
+- id: OFFER-001
+  name: Fahrer lehnt Offer ab
+  tags:
+  - offer
+  - decline
+  setup:
+    candidate_drivers: 2
+  events:
+  - offer.declined
+  expect:
+  - first_lease_closed_atomically
+  - second_candidate_recomputed_from_current_snapshot
+  - no_duplicate_active_assignment
+- id: OFFER-002
+  name: Fahrer antwortet erst nach Lease-Ablauf
+  tags:
+  - offer
+  - late-ack
+  - race
+  setup:
+    offer_ttl_seconds: 15
+    ack_after_seconds: 20
+  expect:
+  - late_ack_rejected_idempotently
+  - current_assignment_not_overwritten
+  - driver_receives_clear_stale_offer_state
+- id: PUSH-001
+  name: Provider akzeptiert Push, App sendet keine Receipt
+  tags:
+  - notification
+  - fallback
+  setup:
+    provider_accepts: true
+    app_receipt: false
+  expect:
+  - retry_or_second_channel_triggered
+  - lease_eventually_expires
+  - order_is_reassigned_or_manual
+  - no_silent_block
+- id: PUSH-002
+  name: Ungültiger Push-Token
+  tags:
+  - notification
+  - token
+  setup:
+    provider_response: TOKEN_INVALID
+  expect:
+  - token_marked_invalid
+  - fallback_channel_triggered
+  - device_health_visible_to_ops
+- id: GPS-001
+  name: Aktiver Fahrer wird stale
+  tags:
+  - tracking
+  - stale
+  setup:
+    last_location_age_seconds: 45
+    active_delivery: true
+  expect:
+  - driver_state_is_stale
+  - ops_ui_shows_age_and_accuracy
+  - driver_not_used_for_tight_new_offer
+  - customer_ui_does_not_claim_live
+- id: GPS-002
+  name: Offline-Batch kommt verspätet und ungeordnet
+  tags:
+  - tracking
+  - offline
+  - ordering
+  setup:
+    batched_points: 20
+    out_of_order: true
+  expect:
+  - history_sorted_by_sequence_or_event_time
+  - old_point_does_not_replace_current_position
+  - duplicates_ignored
+- id: GPS-003
+  name: Unplausibler GPS-Sprung
+  tags:
+  - tracking
+  - validation
+  setup:
+    jump_km: 30
+    elapsed_seconds: 10
+  expect:
+  - point_flagged_or_rejected
+  - last_good_position_retained_with_degraded_status
+  - audit_reason_recorded
+- id: ORDER-001
+  name: Doppeltes order.created Event
+  tags:
+  - idempotency
+  - eventing
+  setup:
+    duplicate_event_id: true
+  expect:
+  - one_canonical_order
+  - one_business_transition
+  - duplicate_consumption_audited_or_counted
+- id: PAYMENT-001
+  name: Payment-Webhook wird doppelt und verspätet geliefert
+  tags:
+  - payment
+  - idempotency
+  - ordering
+  setup:
+    duplicate_webhook: true
+    out_of_order: true
+  expect:
+  - no_double_charge_side_effect
+  - order_payment_state_consistent
+  - stale_callback_does_not_regress_terminal_state
+- id: PREP-001
+  name: Pickup ist deutlich verspätet bereit
+  tags:
+  - prep-delay
+  - reoptimization
+  setup:
+    prep_delay_minutes: 20
+  expect:
+  - eta_and_route_recomputed
+  - driver_wait_and_customer_risk_visible
+  - existing_picked_up_orders_not_harmed_by_reorder
+- id: ROUTE-001
+  name: Alter Client sendet ACK für alte Route-Version
+  tags:
+  - versioning
+  - mobile
+  setup:
+    client_route_version: 3
+    server_route_version: 5
+  expect:
+  - stale_version_rejected
+  - server_route_remains_canonical
+  - client_receives_refresh_instruction
+- id: PROVIDER-001
+  name: Routing Provider fällt aus
+  tags:
+  - provider
+  - fallback
+  - routing
+  setup:
+    routing_provider: timeout
+  expect:
+  - deterministic_fallback_used
+  - conservative_eta_or_manual_state
+  - fallback_visible_in_audit_and_ops
+  - order_not_lost
+- id: LOAD-001
+  name: Peak-Burst mit vielen Orders und Fahrern
+  tags:
+  - load
+  - dispatch
+  setup:
+    orders_in_60_seconds: 200
+    drivers: 60
+  expect:
+  - dispatch_p99_within_configured_budget_or_fallback
+  - no_duplicate_assignments
+  - queue_backlog_recovers
+  - all_orders_end_in_explicit_state
+- id: SHIFT-001
+  name: Schicht endet während aktiver Delivery
+  tags:
+  - shift
+  - state-machine
+  setup:
+    driver_has_picked_up_order: true
+    shift_end_reached: true
+  expect:
+  - active_delivery_not_orphaned
+  - new_offers_blocked
+  - ops_receives_exception_if_overtime_policy_requires
+- id: CANCEL-001
+  name: Kunde storniert während Offer und während Pickup
+  tags:
+  - cancellation
+  - race
+  setup:
+    run_variants:
+    - during_offer
+    - after_pickup
+  expect:
+  - cancellation_policy_applied_by_state
+  - offer_or_route_updated_atomically
+  - compensation_and_audit_recorded
+- id: OVERRIDE-001
+  name: Dispatcher überschreibt automatische Zuweisung
+  tags:
+  - manual
+  - audit
+  setup:
+    automatic_assignment_active: true
+  expect:
+  - override_requires_reason_and_authorization
+  - old_lease_revoked_safely
+  - new_assignment_version_monotonic
+  - full_audit_record
+- id: REALTIME-001
+  name: Realtime Gateway fällt aus
+  tags:
+  - realtime
+  - fallback
+  setup:
+    websocket_gateway: down
+  expect:
+  - ops_and_customer_views_use_polling_fallback
+  - status_shows_delayed_updates
+  - canonical_tracking_ingestion_continues
+- id: MIGRATION-001
+  name: Neue und alte App-Version während Schema-Rollout
+  tags:
+  - migration
+  - compatibility
+  setup:
+    client_versions:
+    - old_supported
+    - new
+  expect:
+  - expand_phase_supports_both_clients
+  - no_destructive_contract_before_adoption
+  - version_metrics_available
+- id: SECURITY-001
+  name: Abgelaufener oder erratener Customer-Tracking-Link
+  tags:
+  - security
+  - customer-tracking
+  setup:
+    token_state: expired_or_invalid
+  expect:
+  - access_denied_without_order_data
+  - event_rate_limited_and_audited
+  - no_driver_location_leak

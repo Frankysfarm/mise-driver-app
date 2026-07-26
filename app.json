@@ -1,0 +1,15 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "3fac06f9-8aa8-4a4e-a84e-f23ff55afb72"
+      }
+    },
+    "ios": {
+      "bundleIdentifier": "app.mise.driver",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    }
+  }
+}

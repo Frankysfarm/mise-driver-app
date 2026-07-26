@@ -1,0 +1,148 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DispatchScorecard",
+  "type": "object",
+  "required": [
+    "algorithm_version",
+    "dataset_id",
+    "generated_at",
+    "metrics",
+    "guardrails",
+    "decision"
+  ],
+  "properties": {
+    "algorithm_version": {
+      "type": "string"
+    },
+    "baseline_version": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "dataset_id": {
+      "type": "string"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "sample_size_orders": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "metrics": {
+      "type": "object",
+      "properties": {
+        "on_time_rate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "late_minutes_p90": {
+          "type": "number",
+          "minimum": 0
+        },
+        "distance_per_order_km": {
+          "type": "number",
+          "minimum": 0
+        },
+        "cost_per_order": {
+          "type": "number"
+        },
+        "pickup_wait_minutes_p90": {
+          "type": "number",
+          "minimum": 0
+        },
+        "unassigned_age_seconds_p95": {
+          "type": "number",
+          "minimum": 0
+        },
+        "assignment_churn_rate": {
+          "type": "number",
+          "minimum": 0
+        },
+        "fallback_rate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "compute_latency_ms_p95": {
+          "type": "number",
+          "minimum": 0
+        },
+        "compute_latency_ms_p99": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": true
+    },
+    "guardrails": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "status",
+          "evidence"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "PASS",
+              "FAIL",
+              "UNKNOWN"
+            ]
+          },
+          "evidence": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "scenario_results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "scenario_id",
+          "status"
+        ],
+        "properties": {
+          "scenario_id": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "PASS",
+              "FAIL",
+              "SKIPPED"
+            ]
+          },
+          "notes": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "decision": {
+      "enum": [
+        "PROMOTE_TO_SHADOW",
+        "KEEP_IN_SHADOW",
+        "REJECT",
+        "PROMOTE_TO_CANARY"
+      ]
+    },
+    "risks": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": false
+}

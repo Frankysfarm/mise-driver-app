@@ -1,0 +1,52 @@
+version: 1
+blocker_policy:
+  open_severities:
+  - P0
+  - P1
+  result: NO_GO
+gates:
+- id: specification
+  required:
+  - task_packet_exists
+  - critical_flow_referenced
+  - measurable_acceptance_criteria
+  - rollout_and_rollback_defined
+- id: reproduction
+  required:
+  - baseline_or_failing_test
+  - root_cause_evidence
+  - no_unverified_assumptions_hidden
+- id: implementation
+  required:
+  - focused_diff
+  - idempotency_and_concurrency_checked
+  - telemetry_present
+  - feature_flag_for_high_risk_change
+- id: review
+  required:
+  - independent_code_review
+  - security_privacy_review_if_sensitive
+  - all_blocking_findings_resolved
+- id: verification
+  required:
+  - relevant_unit_contract_integration_tests
+  - critical_e2e_or_replay
+  - failure_path_test
+  - commands_and_results_recorded
+- id: operations
+  required:
+  - dashboard_or_metric
+  - alert_and_runbook
+  - manual_override
+  - rollback_path
+- id: progressive_delivery
+  required_for:
+  - dispatch
+  - tracking
+  - notifications
+  - state_migration
+  required:
+  - shadow_or_canary_plan
+  - guardrails
+  - stop_conditions
+  - observed_results
