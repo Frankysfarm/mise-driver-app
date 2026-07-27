@@ -95,6 +95,12 @@ if [ -f "ios-resources/AppDelegate.swift" ] && [ -d "$APP_DIR" ]; then
   cp "ios-resources/AppDelegate.swift" "$APP_DIR/AppDelegate.swift"
   echo "  ✓ AppDelegate.swift (mit VoIP-Ringtone-Config) kopiert"
 fi
+if [ -f "ios-resources/LocationTracking.swift" ] && [ -d "$APP_DIR" ]; then
+  cp "ios-resources/LocationTracking.swift" "$APP_DIR/LocationTracking.swift"
+  cp "ios-resources/SecureGpsQueue.swift" "$APP_DIR/SecureGpsQueue.swift"
+  ruby -e 'require "xcodeproj"; p=Xcodeproj::Project.open(ARGV[0]); t=p.targets.find{|x|x.name=="App"}; g=p.main_group.find_subpath("App",true); ARGV.drop(1).each{|name| r=g.files.find{|x|x.path==name}||g.new_reference(name); t.add_file_references([r]) unless t.source_build_phase.files_references.include?(r)}; p.save' "$PBX_FILE" LocationTracking.swift SecureGpsQueue.swift
+  echo "  ✓ LocationTracking.swift + SecureGpsQueue.swift kopiert und dem App-Target hinzugefügt"
+fi
 
 # alarm.caf in project.pbxproj eintragen (idempotent: nur wenn noch nicht vorhanden)
 if [ -f "$PBX_FILE" ] && ! grep -q "alarm.caf" "$PBX_FILE"; then

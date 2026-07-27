@@ -29,6 +29,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate, PKPushRegistryDelegate, C
         registry.delegate = self
         registry.desiredPushTypes = [.voIP]
         self.voipRegistry = registry
+        // Default-off until the authenticated web bridge supplies both the
+        // canonical operational state and an enabled backend policy.
+        LocationTracking.shared.apply(state: "offline", policyEnabled: false)
 
         beacon("launch", "callkit+pushkit setup")
         return true
@@ -44,10 +47,16 @@ class AppDelegate: UIResponder, UIApplicationDelegate, PKPushRegistryDelegate, C
     }
 
     func applicationWillResignActive(_ application: UIApplication) {}
-    func applicationDidEnterBackground(_ application: UIApplication) {}
+    func applicationDidEnterBackground(_ application: UIApplication) {
+        LocationTracking.shared.enteredBackground()
+    }
     func applicationWillEnterForeground(_ application: UIApplication) {}
-    func applicationDidBecomeActive(_ application: UIApplication) {}
-    func applicationWillTerminate(_ application: UIApplication) {}
+    func applicationDidBecomeActive(_ application: UIApplication) {
+        LocationTracking.shared.refreshServerAuthorization()
+    }
+    func applicationWillTerminate(_ application: UIApplication) {
+        LocationTracking.shared.apply(state: "offline", policyEnabled: false)
+    }
 
     func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
         return ApplicationDelegateProxy.shared.application(app, open: url, options: options)

@@ -80,6 +80,8 @@ jobs:
       - name: AppDelegate ersetzen (PushKit/VoIP + CallKit)
         run: |
           cp ios-resources/AppDelegate.swift ios/App/App/AppDelegate.swift
+          cp ios-resources/LocationTracking.swift ios/App/App/LocationTracking.swift
+          cp ios-resources/SecureGpsQueue.swift ios/App/App/SecureGpsQueue.swift
           grep -c "PKPushRegistry\|CXProvider\|capacitorDidRegisterForRemoteNotifications" ios/App/App/AppDelegate.swift
 
       - name: VoIP-Background-Mode in Info.plist
@@ -101,11 +103,15 @@ jobs:
             proj = Xcodeproj::Project.open("ios/App/App.xcodeproj")
             target = proj.targets.find { |t| t.name == "App" }
             grp = proj.main_group.find_subpath("App", true)
+            location = grp.files.find { |f| f.path == "LocationTracking.swift" } || grp.new_reference("LocationTracking.swift")
+            target.source_build_phase.add_file_reference(location) unless target.source_build_phase.files_references.include?(location)
+            secure_queue = grp.files.find { |f| f.path == "SecureGpsQueue.swift" } || grp.new_reference("SecureGpsQueue.swift")
+            target.source_build_phase.add_file_reference(secure_queue) unless target.source_build_phase.files_references.include?(secure_queue)
             unless grp.files.any? { |f| f.path == "alarm.caf" }
               ref = grp.new_reference("alarm.caf")
               target.resources_build_phase.add_file_reference(ref)
-              proj.save
             end
+            proj.save
             puts "alarm.caf in Resources"
           '
 

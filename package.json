@@ -4,13 +4,16 @@
   "description": "Mise Driver — native iOS/Android wrapper around the Mise web driver app, with Geolocation, Camera, Push.",
   "private": true,
   "scripts": {
+    "test:location": "npx tsc native/location-contract.ts scripts/tests/native-location-contract.test.ts --module commonjs --target es2020 --outDir /tmp/mise-native-location-test --esModuleInterop --skipLibCheck && node /tmp/mise-native-location-test/scripts/tests/native-location-contract.test.js && bash scripts/tests/native-location-source.sh",
     "sync": "npx cap sync",
     "ios": "npm run sync && npx cap open ios",
     "android": "npm run sync && npx cap open android",
+    "setup:android-location": "bash scripts/setup-android-location.sh",
     "add:ios": "npx cap add ios",
     "add:android": "npx cap add android"
   },
   "dependencies": {
+    "@capacitor/android": "^6.2.1",
     "@capacitor/app": "^6.0.2",
     "@capacitor/camera": "^6.1.0",
     "@capacitor/core": "^6.2.0",
