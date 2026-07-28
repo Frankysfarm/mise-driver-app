@@ -2,9 +2,10 @@ import { classifyUploadResponse, enqueue, legacyQueueMayBeDeleted, lifecycleExpe
 const equal = (actual: unknown, expected: unknown) => {
   if (actual !== expected) throw new Error(`expected ${String(expected)}, received ${String(actual)}`);
 };
-const base: NativeLocationEvent = { action_id:'a',session_id:'s',sequence:0,captured_at:'2026-07-27T00:00:00Z',
- latitude:0,longitude:0,accuracy_m:5,speed_mps:null,heading_deg:null,app_version:'1',app_build:'1',
- platform:'ios',app_state:'foreground',permission_state:'always',network_state:'online',capability_flags:{} };
+const base: NativeLocationEvent = { action_id:'a',installation_id:'i',session_id:'s',sequence:0,captured_at:'2026-07-27T00:00:00Z',
+ latitude:0,longitude:0,accuracy_m:5,speed_mps:null,heading_deg:null,altitude_m:null,app_version:'1',app_build:'1',
+ platform:'ios',app_state:'foreground',permission_state:'always',network_state:'online',
+ tracking_mode:'continuous',battery_state:{level:.5,charging:false,low_power_mode:false},capability_flags:{} };
 equal(shouldTrack('offline',true),false);
 equal(shouldTrack('delivering',false),false);
 equal(shouldTrack('delivering',true),true);

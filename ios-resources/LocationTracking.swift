@@ -9,6 +9,7 @@ final class LocationTracking: NSObject, CLLocationManagerDelegate {
     private let defaults = UserDefaults.standard
     private let sequenceKey = "mise.gps.sequence.v2"
     private let sessionKey = "mise.gps.session.v2"
+    private let installationKey = "mise.gps.installation.v2"
     private let allowed = Set(["available", "assigned", "at_pickup", "delivering", "returning"])
     private(set) var operationalState = "offline"
     private(set) var policyEnabled = false
@@ -27,6 +28,7 @@ final class LocationTracking: NSObject, CLLocationManagerDelegate {
         manager.pausesLocationUpdatesAutomatically = true
         manager.allowsBackgroundLocationUpdates = true
         manager.showsBackgroundLocationIndicator = true
+        UIDevice.current.isBatteryMonitoringEnabled = true
     }
 
     func apply(state: String, driverVersion: Int = 0, policyEnabled: Bool, backgroundPolicyEnabled: Bool = false) {
@@ -92,17 +94,33 @@ final class LocationTracking: NSObject, CLLocationManagerDelegate {
         }()
         let sequence = defaults.integer(forKey: sequenceKey) + 1
         defaults.set(sequence, forKey: sequenceKey)
+        let installation = defaults.string(forKey: installationKey) ?? {
+            let id = UUID().uuidString.lowercased()
+            defaults.set(id, forKey: installationKey)
+            return id
+        }()
         let state: String = UIApplication.shared.applicationState == .active ? "foreground" : "background"
+        let batteryLevel = UIDevice.current.batteryLevel >= 0 ? Double(UIDevice.current.batteryLevel) : nil
+        let charging = [UIDevice.BatteryState.charging, .full].contains(UIDevice.current.batteryState)
         let payload: [String: Any] = [
-            "action_id": UUID().uuidString.lowercased(), "session_id": session, "sequence": sequence,
+            "action_id": UUID().uuidString.lowercased(), "installation_id": installation,
+            "session_id": session, "sequence": sequence,
             "captured_at": ISO8601DateFormatter().string(from: location.timestamp),
             "latitude": location.coordinate.latitude, "longitude": location.coordinate.longitude,
             "accuracy_m": location.horizontalAccuracy, "speed_mps": max(location.speed, 0),
             "heading_deg": location.course >= 0 ? location.course : NSNull(),
+            "altitude_m": location.verticalAccuracy >= 0 ? location.altitude : NSNull(),
             "app_version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown",
             "app_build": Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "unknown",
             "platform": "ios", "app_state": state, "permission_state": permission(),
-            "network_state": "unknown", "capability_flags": ["background_location": true]
+            "network_state": "unknown",
+            "tracking_mode": state == "foreground" ? "continuous" : "significant_change",
+            "battery_state": [
+                "level": batteryLevel ?? NSNull(),
+                "charging": charging,
+                "low_power_mode": ProcessInfo.processInfo.isLowPowerModeEnabled
+            ],
+            "capability_flags": ["background_location": true]
         ]
         let event: [String: Any] = [
             "action_id": payload["action_id"]!,

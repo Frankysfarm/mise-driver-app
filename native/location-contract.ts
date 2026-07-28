@@ -2,11 +2,13 @@ export const TRACKABLE_STATES = new Set(['available','assigned','at_pickup','del
 export const QUEUE_LIMIT = 100;
 
 export type NativeLocationEvent = {
-  action_id:string; session_id:string; sequence:number; captured_at:string;
+  action_id:string; installation_id:string; session_id:string; sequence:number; captured_at:string;
   latitude:number; longitude:number; accuracy_m:number;
-  speed_mps:number|null; heading_deg:number|null; app_version:string;
+  speed_mps:number|null; heading_deg:number|null; altitude_m:number|null; app_version:string;
   app_build:string|null; platform:'ios'|'android'; app_state:'foreground'|'background'|'locked';
   permission_state:string; network_state:string; capability_flags:Record<string,boolean>;
+  tracking_mode:'continuous'|'significant_change'|'foreground_only';
+  battery_state:{level:number|null;charging:boolean|null;low_power_mode:boolean|null};
 };
 
 export function shouldTrack(state:string, policyEnabled:boolean) {

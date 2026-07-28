@@ -101,18 +101,32 @@ class MiseLocationService : Service() {
         }
         val sequence = prefs.getLong("sequence", 0) + 1
         prefs.edit().putLong("sequence", sequence).apply()
+        val installation = prefs.getString("installation_id",null) ?: UUID.randomUUID().toString().also {
+            prefs.edit().putString("installation_id",it).commit()
+        }
+        val battery = getSystemService(BatteryManager::class.java)
+        val batteryLevel = battery.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+        val batteryStatus = registerReceiver(null,IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+            ?.getIntExtra(BatteryManager.EXTRA_STATUS,-1) ?: -1
         val action = UUID.randomUUID().toString()
         val payload = JSONObject()
-            .put("session_id",session).put("sequence",sequence)
+            .put("installation_id",installation).put("session_id",session).put("sequence",sequence)
             .put("captured_at", Instant.ofEpochMilli(location.time).toString())
             .put("latitude",location.latitude).put("longitude",location.longitude)
             .put("accuracy_m",location.accuracy.toDouble())
             .put("speed_mps",if(location.hasSpeed()) location.speed.toDouble() else JSONObject.NULL)
             .put("heading_deg",if(location.hasBearing()) location.bearing.toDouble() else JSONObject.NULL)
+            .put("altitude_m",if(location.hasAltitude()) location.altitude else JSONObject.NULL)
             .put("app_version",packageManager.getPackageInfo(packageName,0).versionName ?: "unknown")
             .put("app_build",packageManager.getPackageInfo(packageName,0).longVersionCode.toString())
             .put("platform","android").put("app_state","background")
             .put("permission_state","always").put("network_state","unknown")
+            .put("tracking_mode","continuous")
+            .put("battery_state",JSONObject()
+                .put("level",if(batteryLevel in 0..100) batteryLevel/100.0 else JSONObject.NULL)
+                .put("charging",batteryStatus==BatteryManager.BATTERY_STATUS_CHARGING ||
+                    batteryStatus==BatteryManager.BATTERY_STATUS_FULL)
+                .put("low_power_mode",getSystemService(PowerManager::class.java).isPowerSaveMode))
             .put("capability_flags",JSONObject().put("foreground_service",true))
         val envelope = JSONObject().put("action_id",action).put("expected_state",state)
             .put("expected_versions",JSONObject().put("driver",driverVersion)).put("payload",payload)

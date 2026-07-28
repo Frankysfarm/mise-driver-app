@@ -2,6 +2,9 @@
 set -euo pipefail
 grep -q 'refreshServerAuthorization' ios-resources/LocationTracking.swift
 grep -q '/api/driver/v2/snapshot' ios-resources/LocationTracking.swift
+grep -q '"installation_id": installation' ios-resources/LocationTracking.swift
+grep -q '"tracking_mode":' ios-resources/LocationTracking.swift
+grep -q '"battery_state":' ios-resources/LocationTracking.swift
 grep -q 'uploadInFlight' ios-resources/LocationTracking.swift
 grep -q 'kSecClassGenericPassword' ios-resources/LocationTracking.swift
 grep -q 'status == 409' ios-resources/LocationTracking.swift
@@ -31,6 +34,9 @@ grep -q 'authorizeFromCanonicalSnapshot' android-template/MiseLocationService.kt
 grep -q '/api/driver/v2/snapshot' android-template/MiseLocationService.kt
 grep -q 'LocationServices.getFusedLocationProviderClient' android-template/MiseLocationService.kt
 grep -q 'QUEUE_LIMIT = 100' android-template/MiseLocationService.kt
+grep -q 'put("installation_id",installation)' android-template/MiseLocationService.kt
+grep -q 'put("tracking_mode","continuous")' android-template/MiseLocationService.kt
+grep -q 'put("battery_state"' android-template/MiseLocationService.kt
 grep -q 'play-services-location' scripts/setup-android-location.sh
 grep -q 'security-crypto' scripts/setup-android-location.sh
 grep -q 'EncryptedSharedPreferences' android-template/SecureGpsStore.kt
