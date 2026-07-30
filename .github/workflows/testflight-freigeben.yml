@@ -2,6 +2,11 @@ name: TestFlight → Interne Tests freigeben
 
 on:
   workflow_dispatch:
+    inputs:
+      build_number:
+        description: Exakte CFBundleVersion des freizugebenden Builds
+        required: true
+        type: string
 
 jobs:
   release:
@@ -10,6 +15,7 @@ jobs:
       KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
       ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
       APP_ID: "6766271119"
+      BUILD_NUMBER: ${{ inputs.build_number }}
     steps:
       - name: JWT erzeugen + Build freigeben
         env:
@@ -22,6 +28,7 @@ jobs:
           const keyId   = process.env.KEY_ID;
           const issuerId = process.env.ISSUER_ID;
           const appId    = process.env.APP_ID;
+          const buildNumber = process.env.BUILD_NUMBER;
 
           const hdr = Buffer.from(JSON.stringify({alg:'ES256',kid:keyId,typ:'JWT'})).toString('base64url');
           const now = Math.floor(Date.now()/1000);
@@ -45,11 +52,19 @@ jobs:
           }
 
           (async () => {
-            // Neuesten Build holen
-            const builds = await api(`/v1/builds?filter[app]=${appId}&sort=-uploadedDate&limit=1`);
-            if (!builds?.data?.length) { console.error('Kein verarbeiteter Build gefunden'); process.exit(1); }
+            // Exakt den angeforderten Build holen; niemals still auf einen alten
+            // bereits verarbeiteten Build zurückfallen.
+            const builds = await api(`/v1/builds?filter[app]=${appId}&filter[version]=${encodeURIComponent(buildNumber)}&limit=1`);
+            if (!builds?.data?.length) {
+              console.error(`Build ${buildNumber} ist noch nicht verarbeitet oder nicht vorhanden`);
+              process.exit(1);
+            }
             const buildId = builds.data[0].id;
             const version = builds.data[0].attributes?.version;
+            if (version !== buildNumber) {
+              console.error(`Falscher Build geliefert: erwartet ${buildNumber}, erhalten ${version}`);
+              process.exit(1);
+            }
             console.log(`Build gefunden: ${buildId} (${version})`);
 
             // Alle Testgruppen holen, interne filtern
