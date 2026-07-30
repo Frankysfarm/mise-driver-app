@@ -8,11 +8,6 @@ cp android-template/MainActivity.kt android-template/SecureTokenAccess.kt androi
 MANIFEST=android/app/src/main/AndroidManifest.xml
 ruby scripts/integrate-android-location.rb "$MANIFEST"
 GRADLE=android/app/build.gradle
-grep -q 'play-services-location' "$GRADLE" ||
-  sed -i.bak '/dependencies {/a\
-    implementation "com.google.android.gms:play-services-location:21.3.0"' "$GRADLE"
-grep -q 'security-crypto' "$GRADLE" ||
-  sed -i.bak '/dependencies {/a\
-    implementation "androidx.security:security-crypto:1.1.0-alpha06"' "$GRADLE"
+ruby scripts/integrate-android-gradle.rb "$GRADLE"
 npx cap sync android
 echo "Android location service integrated; run android/gradlew -p android assembleDebug."

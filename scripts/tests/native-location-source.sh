@@ -37,8 +37,16 @@ grep -q 'QUEUE_LIMIT = 100' android-template/MiseLocationService.kt
 grep -q 'put("installation_id",installation)' android-template/MiseLocationService.kt
 grep -q 'put("tracking_mode","continuous")' android-template/MiseLocationService.kt
 grep -q 'put("battery_state"' android-template/MiseLocationService.kt
-grep -q 'play-services-location' scripts/setup-android-location.sh
-grep -q 'security-crypto' scripts/setup-android-location.sh
+grep -q 'integrate-android-gradle.rb' scripts/setup-android-location.sh
+grep -q 'play-services-location:21.3.0' scripts/integrate-android-gradle.rb
+grep -q 'security-crypto:1.1.0-alpha06' scripts/integrate-android-gradle.rb
+gradle_fixture=$(mktemp "${TMPDIR:-/tmp}/mise-driver-gradle.XXXXXX")
+trap 'rm -f "$gradle_fixture"' EXIT
+printf '%s\n' 'android {' '}' '' 'dependencies {' '    implementation fileTree(dir: "libs", include: ["*.jar"])' '}' >"$gradle_fixture"
+ruby scripts/integrate-android-gradle.rb "$gradle_fixture"
+ruby scripts/integrate-android-gradle.rb "$gradle_fixture"
+test "$(grep -c 'play-services-location:21.3.0' "$gradle_fixture")" -eq 1
+test "$(grep -c 'security-crypto:1.1.0-alpha06' "$gradle_fixture")" -eq 1
 grep -q 'EncryptedSharedPreferences' android-template/SecureGpsStore.kt
 grep -q 'startForegroundService' android-template/MiseLocationBridge.kt
 grep -q 'locationBridge.reconcile' android-template/MainActivity.kt
