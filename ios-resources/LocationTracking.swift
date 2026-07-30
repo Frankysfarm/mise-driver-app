@@ -48,7 +48,7 @@ final class LocationTracking: NSObject, CLLocationManagerDelegate {
             defaults.set(0, forKey: sequenceKey)
             return
         }
-        if manager.authorizationStatus == .notDetermined { manager.requestAlwaysAuthorization() }
+        if currentAuthorizationStatus() == .notDetermined { manager.requestAlwaysAuthorization() }
         manager.startUpdatingLocation()
         manager.startMonitoringSignificantLocationChanges()
         flush()
@@ -101,6 +101,7 @@ final class LocationTracking: NSObject, CLLocationManagerDelegate {
         }()
         let state: String = UIApplication.shared.applicationState == .active ? "foreground" : "background"
         let batteryLevel = UIDevice.current.batteryLevel >= 0 ? Double(UIDevice.current.batteryLevel) : nil
+        let batteryValue: Any = batteryLevel.map { $0 as Any } ?? NSNull()
         let charging = [UIDevice.BatteryState.charging, .full].contains(UIDevice.current.batteryState)
         let payload: [String: Any] = [
             "action_id": UUID().uuidString.lowercased(), "installation_id": installation,
@@ -116,7 +117,7 @@ final class LocationTracking: NSObject, CLLocationManagerDelegate {
             "network_state": "unknown",
             "tracking_mode": state == "foreground" ? "continuous" : "significant_change",
             "battery_state": [
-                "level": batteryLevel ?? NSNull(),
+                "level": batteryValue,
                 "charging": charging,
                 "low_power_mode": ProcessInfo.processInfo.isLowPowerModeEnabled
             ],
@@ -137,13 +138,20 @@ final class LocationTracking: NSObject, CLLocationManagerDelegate {
     }
 
     private func permission() -> String {
-        switch manager.authorizationStatus {
+        switch currentAuthorizationStatus() {
         case .authorizedAlways: return "always"
         case .authorizedWhenInUse: return "while_in_use"
         case .denied: return "denied"
         case .restricted: return "restricted"
         default: return "unknown"
         }
+    }
+
+    private func currentAuthorizationStatus() -> CLAuthorizationStatus {
+        if #available(iOS 14.0, *) {
+            return manager.authorizationStatus
+        }
+        return CLLocationManager.authorizationStatus()
     }
 
     private func enqueue(_ event: [String: Any]) {
