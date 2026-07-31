@@ -58,10 +58,6 @@ if [ -f "$INFO" ]; then
   /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes array" "$INFO"
   /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:0 string location" "$INFO"
   /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:1 string remote-notification" "$INFO"
-  /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:2 string voip" "$INFO"
-
-  /usr/libexec/PlistBuddy -c "Delete :MiseLegacyVoipOffersEnabled" "$INFO" 2>/dev/null || true
-  /usr/libexec/PlistBuddy -c "Add :MiseLegacyVoipOffersEnabled bool true" "$INFO"
   python3 scripts/ensure_url_scheme.py "$INFO"
 
   echo "  ✓ Permissions gesetzt"
@@ -95,7 +91,7 @@ else
   echo "  ⚠ alarm.caf oder App-Ordner nicht gefunden"
 fi
 
-# AppDelegate.swift kopieren (enthält ringtoneSound = "alarm.caf")
+# AppDelegate.swift kopieren (Standard-APNs, ohne PushKit/CallKit)
 if [ -f "ios-resources/AppDelegate.swift" ] && [ -d "$APP_DIR" ]; then
   cp "ios-resources/AppDelegate.swift" "$APP_DIR/AppDelegate.swift"
   cp "ios-resources/OfferContract.swift" "$APP_DIR/OfferContract.swift"

@@ -80,25 +80,23 @@ jobs:
           perl -i -pe 's/CODE_SIGN_STYLE = Automatic;/CODE_SIGN_STYLE = Manual;\n\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = "Mise Driver AppStore CI";\n\t\t\t\tCODE_SIGN_IDENTITY = "Apple Distribution";\n\t\t\t\tDEVELOPMENT_TEAM = T82KC2CU9V;/g' "$PBX"
           echo "Signing-Settings gesetzt"
 
-      - name: AppDelegate ersetzen (PushKit/VoIP + CallKit)
+      - name: AppDelegate ersetzen (Standard-APNs)
         run: |
           cp ios-resources/AppDelegate.swift ios/App/App/AppDelegate.swift
           cp ios-resources/LocationTracking.swift ios/App/App/LocationTracking.swift
           cp ios-resources/SecureGpsQueue.swift ios/App/App/SecureGpsQueue.swift
           cp ios-resources/OfferContract.swift ios/App/App/OfferContract.swift
-          grep -c "PKPushRegistry\|CXProvider\|capacitorDidRegisterForRemoteNotifications" ios/App/App/AppDelegate.swift
+          grep -q "capacitorDidRegisterForRemoteNotifications" ios/App/App/AppDelegate.swift
+          ! grep -q "PKPushRegistry\|CXProvider\|PushKit\|CallKit" ios/App/App/AppDelegate.swift
           grep -q "struct OfferEnvelope" ios/App/App/OfferContract.swift
 
-      - name: VoIP-Background-Mode in Info.plist
+      - name: Push-Background-Mode in Info.plist
         run: |
           PLIST="ios/App/App/Info.plist"
           /usr/libexec/PlistBuddy -c "Delete :UIBackgroundModes" "$PLIST" 2>/dev/null || true
           /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes array" "$PLIST"
-          /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:0 string voip" "$PLIST"
-          /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:1 string remote-notification" "$PLIST"
-          /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:2 string location" "$PLIST"
-          /usr/libexec/PlistBuddy -c "Delete :MiseLegacyVoipOffersEnabled" "$PLIST" 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c "Add :MiseLegacyVoipOffersEnabled bool true" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:0 string remote-notification" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:1 string location" "$PLIST"
           python3 scripts/ensure_url_scheme.py "$PLIST"
           echo "UIBackgroundModes OK"
 
@@ -186,7 +184,7 @@ jobs:
             | grep -qx "production"
           test -s "$APP/alarm.caf"
           /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes" "$APP/Info.plist" | grep -q "remote-notification"
-          /usr/libexec/PlistBuddy -c "Print :MiseLegacyVoipOffersEnabled" "$APP/Info.plist" | grep -qx "true"
+          ! /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes" "$APP/Info.plist" | grep -q "voip"
           python3 scripts/ensure_url_scheme.py --check "$APP/Info.plist"
           strings "$APP/App" | grep -q "mise-driver-offer"
           echo "Archive-Vertrag OK"

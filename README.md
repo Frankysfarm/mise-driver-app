@@ -4,10 +4,8 @@
 
 ## Offer-Notification-Vertrag
 
-Normale Lieferangebote sollen als Standard-APNs-Alerts eintreffen. PushKit und
-CallKit bleiben nur als feature-gesteuerter Kompatibilitätspfad erhalten,
-solange das Backend auf APNs-First migriert. Sie sind für Angebote ohne echten
-Telefonanruf nicht der kanonische Zustellkanal.
+Lieferangebote treffen ausschließlich als Standard-APNs-Alerts ein. PushKit,
+VoIP und CallKit werden für Bestellungen nicht registriert oder verwendet.
 
 Jede neue Payload soll `offer_id`, `batch_id` und die positive ganzzahlige
 `assignment_version` enthalten. Alte Payloads mit ausschließlich `batch_id`
@@ -17,7 +15,7 @@ Offer-ID.
 Die native Schicht nimmt keine Tour an. Sie sendet das DOM-Event
 `mise-driver-offer` mit den kanonischen Top-Level-Feldern `event_id`, `stage`,
 `offer_id`, `batch_id`, `assignment_version` und `ack_url`. `stage` ist
-`received`, `displayed`, `opened`, `answered` oder `ended`. Die Web-App bleibt
+`received`, `displayed` oder `opened`. Die Web-App bleibt
 die einzige Accept-/Decline-Quelle.
 
 Ein erfolgreiches `evaluateJavaScript` ist noch kein App-ACK. Das Event enthält
@@ -37,10 +35,6 @@ Sobald der Live-Webclient seinen Offer-Listener installiert hat, kann er mit
 `mise-driver://bridge-ready` sofort eine neue Replay-Runde anfordern. Ohne
 Handshake versucht die native Hülle begrenzt nach 1, 3, 10 und 30 Sekunden und
 pausiert dann bis zum nächsten Foreground/Handshake; es gibt keine Busy-Loop.
-
-`MiseLegacyVoipOffersEnabled` steht aus Kompatibilitätsgründen zunächst auf
-`true`. Der APNs-First-Release setzt es erst dann auf `false`, wenn der Server
-keine Lieferangebote mehr als VoIP-Anrufe sendet.
 
 ## Was die App tut
 
