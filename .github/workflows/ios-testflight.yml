@@ -279,10 +279,14 @@ jobs:
             const groups = await api(`/v1/betaGroups?filter[app]=${appId}&limit=50`);
             const internal = groups.data?.find(group => group.attributes?.isInternalGroup === true);
             if (!internal) throw new Error('Keine interne TestFlight-Gruppe gefunden');
-            await api(`/v1/betaGroups/${internal.id}/relationships/builds`, 'POST', {
-              data: [{id:build.id,type:'builds'}],
-            }, [409]);
-            console.log(`Build ${buildNumber} für interne Gruppe ${internal.attributes?.name} freigegeben`);
+            if (internal.attributes?.hasAccessToAllBuilds === true) {
+              console.log(`Build ${buildNumber} ist über die automatische interne Gruppe ${internal.attributes?.name} freigegeben`);
+            } else {
+              await api(`/v1/betaGroups/${internal.id}/relationships/builds`, 'POST', {
+                data: [{id:build.id,type:'builds'}],
+              }, [409]);
+              console.log(`Build ${buildNumber} für interne Gruppe ${internal.attributes?.name} freigegeben`);
+            }
           })().catch(error => { console.error(error); process.exit(1); });
           EOF
 
