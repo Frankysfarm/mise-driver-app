@@ -15,11 +15,14 @@ name: iOS → TestFlight
 
 on:
   workflow_dispatch:
+  push:
+    tags:
+      - 'ios-release-*'
 
 jobs:
   build:
     runs-on: macos-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     env:
       WORKSPACE: ios/App/App.xcworkspace
       SCHEME: App
@@ -27,6 +30,7 @@ jobs:
       BUNDLE_ID: app.mise.driver
       KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
       ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+      APP_ID: "6766271119"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -47,7 +51,9 @@ jobs:
         run: npm ci
 
       - name: iOS Offer-Vertrag testen
-        run: bash ios-contract-tests/run.sh
+        run: |
+          bash ios-contract-tests/run.sh
+          npm run test:location
 
       - name: iOS-Projekt erzeugen + sync
         run: |
@@ -135,6 +141,7 @@ jobs:
           BUILD_NO=$(date +%Y%m%d%H%M)
           sed -i '' "s/CURRENT_PROJECT_VERSION = [0-9.]*;/CURRENT_PROJECT_VERSION = ${BUILD_NO};/g" "$PBX"
           sed -i '' "s/MARKETING_VERSION = [0-9.]*;/MARKETING_VERSION = 1.0.0;/g" "$PBX"
+          echo "BUILD_NO=${BUILD_NO}" >> "$GITHUB_ENV"
           echo "Build-Nummer: ${BUILD_NO}"
 
       - name: CocoaPods
@@ -217,6 +224,67 @@ jobs:
           echo "Lade hoch: $IPA"
           xcrun altool --upload-app -f "$IPA" -t ios \
             --apiKey "$KEY_ID" --apiIssuer "$ISSUER_ID"
+
+      - name: Exakten Build für interne Tester freigeben
+        env:
+          KEY_P8_B64: ${{ secrets.APP_STORE_CONNECT_KEY_P8_BASE64 }}
+        run: |
+          node - <<'EOF'
+          const crypto = require('crypto');
+
+          const keyPem = Buffer.from(process.env.KEY_P8_B64, 'base64').toString('utf8');
+          const keyId = process.env.KEY_ID;
+          const issuerId = process.env.ISSUER_ID;
+          const appId = process.env.APP_ID;
+          const buildNumber = process.env.BUILD_NO;
+          const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+          function jwt() {
+            const header = Buffer.from(JSON.stringify({alg:'ES256',kid:keyId,typ:'JWT'})).toString('base64url');
+            const now = Math.floor(Date.now()/1000);
+            const payload = Buffer.from(JSON.stringify({iss:issuerId,iat:now,exp:now+1100,aud:'appstoreconnect-v1'})).toString('base64url');
+            const message = `${header}.${payload}`;
+            const sign = crypto.createSign('SHA256');
+            sign.update(message);
+            return `${message}.${sign.sign({key:keyPem,dsaEncoding:'ieee-p1363'}).toString('base64url')}`;
+          }
+
+          async function api(path, method='GET', body=null, accepted=[]) {
+            const response = await fetch(`https://api.appstoreconnect.apple.com${path}`, {
+              method,
+              headers: {Authorization:`Bearer ${jwt()}`,'Content-Type':'application/json'},
+              ...(body ? {body:JSON.stringify(body)} : {}),
+            });
+            const text = await response.text();
+            if (!response.ok && !accepted.includes(response.status)) {
+              throw new Error(`${method} ${path} -> ${response.status}: ${text.slice(0,500)}`);
+            }
+            return text ? JSON.parse(text) : {};
+          }
+
+          (async () => {
+            let build = null;
+            for (let attempt=1; attempt<=40; attempt++) {
+              const builds = await api(`/v1/builds?filter[app]=${appId}&filter[version]=${encodeURIComponent(buildNumber)}&limit=5`);
+              build = builds.data?.find(item => item.attributes?.version === buildNumber) ?? null;
+              const state = build?.attributes?.processingState ?? 'NOT_VISIBLE';
+              console.log(`App Store processing ${attempt}/40: ${state}`);
+              if (state === 'INVALID') throw new Error(`Build ${buildNumber} wurde von Apple als INVALID markiert`);
+              if (state === 'VALID') break;
+              build = null;
+              await sleep(30_000);
+            }
+            if (!build) throw new Error(`Build ${buildNumber} wurde nicht rechtzeitig verarbeitet`);
+
+            const groups = await api(`/v1/betaGroups?filter[app]=${appId}&limit=50`);
+            const internal = groups.data?.find(group => group.attributes?.isInternalGroup === true);
+            if (!internal) throw new Error('Keine interne TestFlight-Gruppe gefunden');
+            await api(`/v1/betaGroups/${internal.id}/relationships/builds`, 'POST', {
+              data: [{id:build.id,type:'builds'}],
+            }, [409]);
+            console.log(`Build ${buildNumber} für interne Gruppe ${internal.attributes?.name} freigegeben`);
+          })().catch(error => { console.error(error); process.exit(1); });
+          EOF
 
       - name: Build-Artefakt sichern
         if: always()

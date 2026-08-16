@@ -22,12 +22,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     }
 
     private func beacon(_ stage: String, _ extra: String = "") {
-        guard let url = URL(string: "https://mise-gastro.de/api/driver/v1/push-debug") else { return }
-        var req = URLRequest(url: url)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try? JSONSerialization.data(withJSONObject: ["stage": "native-" + stage, "data": extra])
-        URLSession.shared.dataTask(with: req).resume()
+        // Diagnostic traces stay in the device log. The former unauthenticated
+        // network beacon endpoint was intentionally removed from the backend.
+        NSLog("[MiseDriver] %@ %@", stage, extra)
     }
 
     func applicationWillResignActive(_ application: UIApplication) {}
@@ -51,7 +48,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             return true
         }
         if url.scheme == "mise-driver", url.host == "bridge-ready" {
+            LocationTracking.shared.refreshServerAuthorization()
             scheduleBridgeFlush(attempt: 0)
+            return true
+        }
+        if url.scheme == "mise-driver", url.host == "gps-refresh" {
+            LocationTracking.shared.refreshServerAuthorization()
             return true
         }
         return ApplicationDelegateProxy.shared.application(app, open: url, options: options)

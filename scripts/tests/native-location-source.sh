@@ -8,6 +8,11 @@ grep -q '"battery_state":' ios-resources/LocationTracking.swift
 grep -q 'uploadInFlight' ios-resources/LocationTracking.swift
 grep -q 'kSecClassGenericPassword' ios-resources/LocationTracking.swift
 grep -q 'status == 409' ios-resources/LocationTracking.swift
+grep -q 'url.host == "gps-refresh"' ios-resources/AppDelegate.swift
+if grep -q '/api/driver/v1/push-debug' ios-resources/AppDelegate.swift; then
+  echo "deleted unauthenticated push-debug beacon remains in AppDelegate.swift" >&2
+  exit 1
+fi
 grep -q 'AES.GCM.seal' ios-resources/SecureGpsQueue.swift
 grep -q 'completeFileProtectionUntilFirstUserAuthentication' ios-resources/SecureGpsQueue.swift
 grep -q 'kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly' ios-resources/SecureGpsQueue.swift
