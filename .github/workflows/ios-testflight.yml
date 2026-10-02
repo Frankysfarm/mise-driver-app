@@ -54,6 +54,7 @@ jobs:
         run: |
           bash ios-contract-tests/run.sh
           npm run test:location
+          python3 ios-contract-tests/ExportComplianceTests.py
 
       - name: iOS-Projekt erzeugen + sync
         run: |
@@ -104,6 +105,7 @@ jobs:
           /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:0 string remote-notification" "$PLIST"
           /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:1 string location" "$PLIST"
           python3 scripts/ensure_url_scheme.py "$PLIST"
+          python3 scripts/ensure_export_compliance.py "$PLIST"
           echo "UIBackgroundModes OK"
 
       - name: Alarm-Sound ins App-Bundle
@@ -193,6 +195,7 @@ jobs:
           /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes" "$APP/Info.plist" | grep -q "remote-notification"
           ! /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes" "$APP/Info.plist" | grep -q "voip"
           python3 scripts/ensure_url_scheme.py --check "$APP/Info.plist"
+          python3 scripts/ensure_export_compliance.py "$APP/Info.plist" --check
           strings "$APP/App" | grep -q "mise-driver-offer"
           echo "Archive-Vertrag OK"
 
@@ -275,17 +278,37 @@ jobs:
               await sleep(30_000);
             }
             if (!build) throw new Error(`Build ${buildNumber} wurde nicht rechtzeitig verarbeitet`);
+            if (build.attributes?.usesNonExemptEncryption !== false) {
+              throw new Error(`Build ${buildNumber}: Apple-Verschlüsselungsangaben fehlen oder weichen vom geprüften Archiv ab`);
+            }
 
             const groups = await api(`/v1/betaGroups?filter[app]=${appId}&limit=50`);
             const internal = groups.data?.find(group => group.attributes?.isInternalGroup === true);
             if (!internal) throw new Error('Keine interne TestFlight-Gruppe gefunden');
             if (internal.attributes?.hasAccessToAllBuilds === true) {
-              console.log(`Build ${buildNumber} ist über die automatische interne Gruppe ${internal.attributes?.name} freigegeben`);
+              console.log(`Build ${buildNumber}: automatische interne Gruppe ${internal.attributes?.name}`);
             } else {
               await api(`/v1/betaGroups/${internal.id}/relationships/builds`, 'POST', {
                 data: [{id:build.id,type:'builds'}],
               }, [409]);
               console.log(`Build ${buildNumber} für interne Gruppe ${internal.attributes?.name} freigegeben`);
+            }
+            let testingState = 'UNKNOWN';
+            let groupAssigned = internal.attributes?.hasAccessToAllBuilds === true;
+            for (let attempt=1; attempt<=10; attempt++) {
+              const detail = await api(`/v1/builds/${build.id}/buildBetaDetail`);
+              testingState = detail.data?.attributes?.internalBuildState ?? 'UNKNOWN';
+              if (!groupAssigned) {
+                const assigned = await api(`/v1/builds/${build.id}/betaGroups?limit=200`);
+                groupAssigned = assigned.data?.some(group => group.id === internal.id) === true;
+              }
+              console.log(`Build ${buildNumber}: interner Teststatus ${testingState}, Gruppe zugewiesen: ${groupAssigned}`);
+              if (groupAssigned && ['READY_FOR_BETA_TESTING', 'IN_BETA_TESTING'].includes(testingState)) break;
+              if (['MISSING_EXPORT_COMPLIANCE', 'IN_EXPORT_COMPLIANCE_REVIEW', 'EXPIRED', 'INVALID', 'FAILED'].includes(testingState)) break;
+              await sleep(15_000);
+            }
+            if (!groupAssigned || !['READY_FOR_BETA_TESTING', 'IN_BETA_TESTING'].includes(testingState)) {
+              throw new Error(`Build ${buildNumber} ist noch nicht für interne Tests bereit: ${testingState}`);
             }
           })().catch(error => { console.error(error); process.exit(1); });
           EOF

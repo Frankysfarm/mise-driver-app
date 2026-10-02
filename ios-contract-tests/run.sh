@@ -11,3 +11,7 @@ swiftc ios-resources/OfferContract.swift "$TMP_ROOT/main.swift" -o "$TMP_ROOT/em
 "$TMP_ROOT/emit-fixture" > "$TMP_ROOT/native-offer.json"
 node ios-contract-tests/validate-web-offer-contract.mjs "$TMP_ROOT/native-offer.json"
 python3 ios-contract-tests/PlistContractTests.py
+
+cp ios-contract-tests/GpsSessionContractTests.swift "$TMP_ROOT/main.swift"
+swiftc ios-resources/SecureGpsQueue.swift "$TMP_ROOT/main.swift" -o "$TMP_ROOT/gps-tests"
+"$TMP_ROOT/gps-tests"

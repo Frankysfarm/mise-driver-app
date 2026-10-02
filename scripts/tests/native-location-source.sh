@@ -5,10 +5,23 @@ grep -q '/api/driver/v2/snapshot' ios-resources/LocationTracking.swift
 grep -q '"installation_id": installation' ios-resources/LocationTracking.swift
 grep -q '"tracking_mode":' ios-resources/LocationTracking.swift
 grep -q '"battery_state":' ios-resources/LocationTracking.swift
-grep -q 'uploadInFlight' ios-resources/LocationTracking.swift
+grep -q 'self.uploadRequestID == requestID' ios-resources/LocationTracking.swift
+grep -q 'self.authorizationRequestID == requestID' ios-resources/LocationTracking.swift
+grep -q 'self.currentContext() == context, self.session.matches(context)' ios-resources/LocationTracking.swift
 grep -q 'kSecClassGenericPassword' ios-resources/LocationTracking.swift
-grep -q 'status == 409' ios-resources/LocationTracking.swift
+grep -Fq '(400...499).contains(status) && status != 429' ios-resources/LocationTracking.swift
+grep -q 'status == 401 || status == 403 { self.logout(); return }' ios-resources/LocationTracking.swift
+grep -q 'queue.acknowledge(actionID: actionID)' ios-resources/LocationTracking.swift
+grep -q 'load(for: context.identity)' ios-resources/LocationTracking.swift
 grep -q 'url.host == "gps-refresh"' ios-resources/AppDelegate.swift
+grep -q 'url.host == "gps-logout"' ios-resources/AppDelegate.swift
+grep -q 'GpsWebSessionNavigation.isSignedOut' ios-resources/AppDelegate.swift
+grep -Fq 'webView.observe(\.url' ios-resources/AppDelegate.swift
+if grep -Eq 'SecItemCopyMatching|queue.removeFirst' ios-resources/LocationTracking.swift; then
+  echo "GPS must not revive persisted credentials or ACK a captured queue" >&2
+  exit 1
+fi
+grep -q 'GpsSessionContractTests.swift' ios-contract-tests/run.sh
 if grep -q '/api/driver/v1/push-debug' ios-resources/AppDelegate.swift; then
   echo "deleted unauthenticated push-debug beacon remains in AppDelegate.swift" >&2
   exit 1
@@ -16,8 +29,9 @@ fi
 grep -q 'AES.GCM.seal' ios-resources/SecureGpsQueue.swift
 grep -q 'completeFileProtectionUntilFirstUserAuthentication' ios-resources/SecureGpsQueue.swift
 grep -q 'kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly' ios-resources/SecureGpsQueue.swift
-grep -q 'defaults.removeObject(forKey: legacyKey)' ios-resources/SecureGpsQueue.swift
-grep -q 'expectedData == roundTripData' ios-resources/SecureGpsQueue.swift
+grep -q 'UserDefaults.standard.removeObject(forKey: "mise.gps.queue.v2")' ios-resources/SecureGpsQueue.swift
+grep -q 'GpsQueueEnvelope(stored: stored, owner: owner)' ios-resources/SecureGpsQueue.swift
+grep -q 'secure_queue_unowned_or_other_identity' ios-resources/SecureGpsQueue.swift
 grep -Fq 'options: [.sortedKeys]' ios-resources/SecureGpsQueue.swift
 grep -q 'secure_queue_corrupt' ios-resources/SecureGpsQueue.swift
 if grep -E 'defaults\.(set|array).*queueKey' ios-resources/LocationTracking.swift; then

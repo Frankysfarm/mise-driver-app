@@ -1,6 +1,7 @@
 import UIKit
 import Capacitor
 import UserNotifications
+import WebKit
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterDelegate {
@@ -8,6 +9,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     var window: UIWindow?
     private let bridgeQueue = OfferBridgeQueue()
     private var bridgeFlushWorkItem: DispatchWorkItem?
+    private var webSessionObservation: NSKeyValueObservation?
+    private weak var observedWebView: WKWebView?
+    private let serverURL = URL(string: "https://mise-gastro.de")!
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         UNUserNotificationCenter.current().delegate = self
@@ -33,7 +37,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     }
     func applicationWillEnterForeground(_ application: UIApplication) {}
     func applicationDidBecomeActive(_ application: UIApplication) {
-        LocationTracking.shared.refreshServerAuthorization()
+        refreshNativeGPSAuthorization()
         scheduleBridgeFlush(attempt: 0)
     }
     func applicationWillTerminate(_ application: UIApplication) {
@@ -48,12 +52,16 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             return true
         }
         if url.scheme == "mise-driver", url.host == "bridge-ready" {
-            LocationTracking.shared.refreshServerAuthorization()
+            refreshNativeGPSAuthorization()
             scheduleBridgeFlush(attempt: 0)
             return true
         }
+        if url.scheme == "mise-driver", url.host == "gps-logout" {
+            LocationTracking.shared.logout()
+            return true
+        }
         if url.scheme == "mise-driver", url.host == "gps-refresh" {
-            LocationTracking.shared.refreshServerAuthorization()
+            refreshNativeGPSAuthorization()
             return true
         }
         return ApplicationDelegateProxy.shared.application(app, open: url, options: options)
@@ -160,16 +168,47 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         }
         let item = DispatchWorkItem { [weak self] in
             guard let self else { return }
+            let observingSession = self.observeWebSessionNavigation()
             let events = self.bridgeQueue.activeEvents()
             for event in events {
                 self.bridge(event.offer, stage: event.stage)
             }
-            if !events.isEmpty {
+            if !events.isEmpty || !observingSession {
                 self.scheduleBridgeFlush(attempt: attempt + 1)
             }
         }
         bridgeFlushWorkItem = item
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)
+    }
+
+    private func refreshNativeGPSAuthorization() {
+        _ = observeWebSessionNavigation()
+        if let url = observedWebView?.url, GpsWebSessionNavigation.isSignedOut(url, serverURL: serverURL) {
+            LocationTracking.shared.logout()
+        } else {
+            LocationTracking.shared.refreshServerAuthorization()
+        }
+    }
+
+    @discardableResult
+    private func observeWebSessionNavigation() -> Bool {
+        guard let webView = findBridgeController(window?.rootViewController)?.bridge?.webView else { return false }
+        guard observedWebView !== webView else { return true }
+        webSessionObservation?.invalidate()
+        observedWebView = webView
+        // KVO preserves Capacitor's navigation delegate and also observes SPA
+        // history changes used by the already deployed web logout flow.
+        webSessionObservation = webView.observe(\.url, options: [.initial, .new]) { [weak self] webView, _ in
+            let update = { [weak self, weak webView] in
+                guard let self, let webView, self.observedWebView === webView,
+                      let url = webView.url else { return }
+                if GpsWebSessionNavigation.isSignedOut(url, serverURL: self.serverURL) {
+                    LocationTracking.shared.logout()
+                }
+            }
+            if Thread.isMainThread { update() } else { DispatchQueue.main.async(execute: update) }
+        }
+        return true
     }
 
     private func findBridgeController(_ controller: UIViewController?) -> CAPBridgeViewController? {
