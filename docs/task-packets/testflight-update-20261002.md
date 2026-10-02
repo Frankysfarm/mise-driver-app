@@ -1,6 +1,6 @@
 # TestFlight update 2026-10-02
 
-Status: REVIEWED — mandatory CI/native build and Apple verification pending
+Status: RELEASED_TO_INTERNAL_TESTFLIGHT — operational device/APNs checks open
 
 ## Problem and baseline
 Existing app: app.mise.driver, Apple app 6766271119, GitHub Frankysfarm/mise-driver-app.
@@ -47,3 +47,18 @@ patching; 48 behavior assertions are now wired into mandatory CI. Local Swift
 compilation was stopped after prolonged no output to respect Mac resource policy;
 it is not reported as passed. CI must execute Swift assertions and iOS archive
 before upload. Server observations and device acceptance are in TESTFLIGHT-RELEASE.md.
+
+## Confirmed release
+- Binary source: 75fd58101960b2caabcc7e0281be170a585c44cd.
+- GitHub run: https://github.com/Frankysfarm/mise-driver-app/actions/runs/37068380171.
+- All mandatory tests, archive, signing, upload, exact-build compliance/testing
+  and group checks succeeded. Build 1.0.0 (202610022143).
+- App Store Connect visibly lists that exact build as Ready to Submit, expires
+  in 90 days, group Team (Expo), one invitation. This confirms internal testing;
+  it is not a public App Store release or an end-to-end operational acceptance.
+- Production host remains mise-gastro.de. Real-device push/driver-switch and
+  production native APNs/worker checks remain open.
+- Source is pushed on codex/testflight-update-20261002. Direct main update was
+  rejected by automatic approval review: TestFlight authorization was deemed
+  insufficient for direct default-branch mutation. No workaround attempted.
+  PR creation was unavailable (connector 403, CLI GraphQL authentication 401).
