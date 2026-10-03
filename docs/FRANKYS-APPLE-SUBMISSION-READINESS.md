@@ -62,6 +62,18 @@ und Telefonnummer sowie gegebenenfalls Fotos und Diagnosedaten zu prüfen.
 Nicht jede theoretische Kategorie ist automatisch als erhoben anzukreuzen;
 maßgeblich ist die tatsächliche Implementierung einschließlich Dienstleister.
 
+### Vorhandene öffentliche Seiten geprüft
+
+- `https://mise-gastro.de/driver/privacy`: HTTP 200, Titel „Datenschutz · Mise
+  Driver“, keine Weiterleitung. Quellseite beschreibt die operative Mise-App
+  mit Fahrerprofil, Standortdaten und Lieferhistorie (Stand Mai 2026). Vor einer
+  Übernahme für Franky's Fahrer müssen Betreiberbezug und tatsächliche
+  Datenverarbeitung übereinstimmen; diese Prüfung ist noch offen.
+- `https://mise-gastro.de/impressum`: HTTP 200, Titel „Impressum · Mise“.
+  Allgemeine Kontaktdaten ersetzen keine auf die Fahrer-App abgestimmte Hilfe.
+- Eine gesonderte öffentliche Fahrer-Supportseite wurde bei der gezielten
+  Quellprüfung nicht gefunden. Keine ungeprüfte URL bei Apple eingetragen.
+
 ## Offizielle Apple-Quellen
 
 - [Interne TestFlight-Tester hinzufügen](https://developer.apple.com/help/app-store-connect/test-a-beta-version/add-internal-testers)
