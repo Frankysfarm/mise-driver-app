@@ -71,3 +71,12 @@ Do not send Apple support communications without explicit authorization.
   alone is defective: both identity and enabled capabilities differ.
 - Operational UI source review found five targeted refinements, documented in
   FRANKYS-DRIVER-DESIGN.md. No backend UI change or live deployment performed.
+- Implementation is committed locally as be3992f392144276798b4a6d8437c83a009f323b
+  on codex/frankys-driver-installation-canary-20261004. No remote publication is
+  confirmed: initial push failed HTTP 400, subsequent branch lookup returned 404,
+  and a bounded transport retry failed because GitHub credentials were absent.
+  `gh auth status` then confirmed the active Frankysfarm token is invalid.
+  Restore authorized GitHub authentication before retrying the feature-branch
+  push; do not push the default branch or mark this as uploaded to TestFlight.
+- Chrome remains on the App Store Connect sign-in page. Reauthentication is
+  pending. No new CI run, signing profile, or TestFlight build was created.
