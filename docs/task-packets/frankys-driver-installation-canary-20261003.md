@@ -80,3 +80,22 @@ Do not send Apple support communications without explicit authorization.
   push; do not push the default branch or mark this as uploaded to TestFlight.
 - Chrome remains on the App Store Connect sign-in page. Reauthentication is
   pending. No new CI run, signing profile, or TestFlight build was created.
+
+## Follow-up — Apple session restored, October 4
+- App Store Connect now visibly confirms Franky's Fahrer, numeric App ID
+  6818794309, explicit bundle de.frankysfarm.driver, SKU
+  frankys-fahrer-ios-20261003. The earlier app creation therefore completed.
+- The user's “Unable to Add for Review” notice is on Distribution / iOS 1.0.
+  This is an incomplete public App Store submission, not evidence explaining
+  the old Mise TestFlight installation failure.
+- New app TestFlight explicitly shows No Builds. Public metadata cannot solve
+  this; a correctly signed upload and internal installation test remain required.
+- Created internal group Frankys Installationstest, UUID
+  0ba6f2e5-fc45-4b05-97a1-476ae2de70e9, automatic distribution disabled.
+- Added the existing account-holder tester to this group. Apple visibly confirms
+  1 Tester, 0 Builds and No Builds Available. No invitation delivery or app
+  installation is claimed while no build exists.
+- GitHub CLI still reports invalid authentication. Device reauthentication was
+  initiated; do not record one-time codes or credentials here.
+- Do not submit the offline installation canary as the complete delivery app,
+  or carry its privacy answers over to a later operational version.
