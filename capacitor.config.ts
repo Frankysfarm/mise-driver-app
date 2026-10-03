@@ -1,5 +1,9 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
+const { resolveVariant, capacitorIdentity } = require('./scripts/app-variant.cjs');
+const variant = resolveVariant();
+const shellBackground = variant.installation_canary ? '#F6EDDA' : '#09090b';
+
 /**
  * Mise Driver — Capacitor-Konfiguration für die native Fahrer-App.
  *
@@ -16,29 +20,17 @@ import type { CapacitorConfig } from '@capacitor/cli';
  * persönlichen Account ein → sieht nur Bestellungen seiner zugewiesenen Filiale.
  */
 const config: CapacitorConfig = {
-  appId: 'app.mise.driver',
-  appName: 'Mise Driver',
-  webDir: 'web',
-  server: {
-    url: 'https://mise-gastro.de/fahrer/app',
-    cleartext: false,
-    androidScheme: 'https',
-    allowNavigation: [
-      'mise-gastro.de',
-      '*.mise-gastro.de',
-      'mise.app',
-      '*.mise.app',
-    ],
-  },
+  // Shared resolver keeps the canary local and preserves the default live URL.
+  ...capacitorIdentity(variant),
   ios: {
     contentInset: 'always',
-    backgroundColor: '#09090b',
-    scheme: 'mise-driver',
+    backgroundColor: shellBackground,
+    scheme: variant.url_scheme,
     preferredContentMode: 'mobile',
     limitsNavigationsToAppBoundDomains: false,
   },
   android: {
-    backgroundColor: '#09090b',
+    backgroundColor: shellBackground,
     allowMixedContent: false,
     captureInput: true,
     webContentsDebuggingEnabled: false,
@@ -47,11 +39,11 @@ const config: CapacitorConfig = {
     SplashScreen: {
       launchShowDuration: 1500,
       launchAutoHide: true,
-      backgroundColor: '#09090b',
+      backgroundColor: shellBackground,
       androidSplashResourceName: 'splash',
       androidScaleType: 'CENTER_CROP',
       showSpinner: true,
-      spinnerColor: '#fbbf24',
+      spinnerColor: variant.installation_canary ? '#194B35' : '#fbbf24',
     },
     Geolocation: {
       // iOS Info.plist Keys werden in Info.plist gepflegt; hier nur Capacitor-Defaults
@@ -64,7 +56,7 @@ const config: CapacitorConfig = {
     },
     StatusBar: {
       style: 'DARK',
-      backgroundColor: '#09090b',
+      backgroundColor: shellBackground,
       overlaysWebView: false,
     },
     Haptics: {},

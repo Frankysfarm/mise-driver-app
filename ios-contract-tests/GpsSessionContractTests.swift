@@ -101,4 +101,22 @@ expect(!signedOut("https://mise-gastro.de/fahrer/login-help"), "Only exact signe
 expect(!signedOut("https://other.example/fahrer"), "Unrelated origin does not control session state")
 expect(!signedOut("http://mise-gastro.de/fahrer"), "Insecure origin does not match configured server")
 expect(!signedOut("https://mise-gastro.de:8443/fahrer"), "Different origin port does not match")
+// Native capability enforcement is independent of JS, token handoffs and URLs.
+let legacyRuntime = DriverRuntimeConfiguration(bundleIdentifier: "app.mise.driver", info: [:])
+expect(legacyRuntime.operationsEnabled && legacyRuntime.urlScheme == "mise-driver", "Legacy Mise defaults retain their identity and operational capability")
+let canaryInfo: [String: Any] = ["DriverExpectedBundleIdentifier": "de.frankysfarm.driver",
+                               "DriverURLScheme": "frankys-driver", "DriverOperationsEnabled": false,
+                               "DriverInstallationCanary": true]
+let canaryRuntime = DriverRuntimeConfiguration(bundleIdentifier: "de.frankysfarm.driver", info: canaryInfo)
+expect(!canaryRuntime.operationsEnabled && canaryRuntime.urlScheme == "frankys-driver", "Canary is non-operational with a collision-free scheme")
+var tamperedInfo = canaryInfo
+tamperedInfo["DriverOperationsEnabled"] = true
+tamperedInfo["DriverInstallationCanary"] = false
+expect(!DriverRuntimeConfiguration(bundleIdentifier: "de.frankysfarm.driver", info: tamperedInfo).operationsEnabled, "Config cannot enable canary APNs/GPS before backend support")
+expect(!DriverRuntimeConfiguration(bundleIdentifier: "de.frankysfarm.driver", info: [:]).operationsEnabled, "Missing canary metadata fails closed")
+expect(DriverRuntimeConfiguration(bundleIdentifier: "de.frankysfarm.driver", info: [:]).urlScheme == nil, "Missing canary metadata cannot fall back to Mise URLs")
+expect(!DriverRuntimeConfiguration(bundleIdentifier: "unrecognized.app", info: [:]).operationsEnabled, "Unknown bundle cannot enable native operations")
+expect(!DriverRuntimeConfiguration(bundleIdentifier: "app.mise.driver", info: canaryInfo).operationsEnabled, "Bundle/config mismatch fails closed")
+expect(!DriverRuntimeConfiguration(bundleIdentifier: nil, info: [:]).operationsEnabled, "Missing bundle identity fails closed")
+expect(!DriverRuntimeConfiguration(bundleIdentifier: "app.mise.driver", info: ["DriverOperationsEnabled": false]).operationsEnabled, "Mise capability switch may also explicitly disable operations")
 print("GPS session contract tests: \(checks) passed")

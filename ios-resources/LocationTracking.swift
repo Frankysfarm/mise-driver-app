@@ -52,7 +52,8 @@ final class LocationTracking: NSObject, CLLocationManagerDelegate {
             defaults.set(UUID().uuidString.lowercased(), forKey: sessionKey)
             defaults.set(0, forKey: sequenceKey)
         }
-        guard policyEnabled, allowed.contains(state), let context = session.context,
+        guard DriverRuntimeConfiguration.current.operationsEnabled,
+              policyEnabled, allowed.contains(state), let context = session.context,
               session.matches(context), session.authorizedSince != nil,
               UIApplication.shared.applicationState == .active || backgroundPolicyEnabled else {
             session.suspend()
@@ -284,6 +285,7 @@ final class LocationTracking: NSObject, CLLocationManagerDelegate {
 
     private func currentContext() -> GpsRequestContext? {
         precondition(Thread.isMainThread)
+        guard DriverRuntimeConfiguration.current.operationsEnabled else { return nil }
         if let token = defaults.string(forKey: credentialHandoffKey) {
             defaults.removeObject(forKey: credentialHandoffKey)
             let previous = session.context

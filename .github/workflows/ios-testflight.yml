@@ -10,11 +10,19 @@ name: iOS → TestFlight
 #   BUILD_CERT_P12_BASE64           = Apple Distribution Zertifikat (.p12, base64)
 #   BUILD_CERT_PASSWORD             = Passwort für das .p12
 #   BUILD_PROFILE_BASE64            = Provisioning Profile (.mobileprovision, base64)
+# Opt-in frankys: repository variable FRANKYS_APP_STORE_APP_ID and separate
+# secret FRANKYS_BUILD_PROFILE_BASE64 are required; no credential fallback.
 #
 # Starten: Repo → Actions → "iOS → TestFlight" → "Run workflow"
 
 on:
   workflow_dispatch:
+    inputs:
+      variant:
+        description: "mise = existing driver app; frankys = offline installation canary"
+        type: choice
+        default: mise
+        options: [mise, frankys]
   push:
     tags:
       - 'ios-release-*'
@@ -27,13 +35,21 @@ jobs:
       WORKSPACE: ios/App/App.xcworkspace
       SCHEME: App
       TEAM_ID: T82KC2CU9V
-      BUNDLE_ID: app.mise.driver
+      DRIVER_APP_VARIANT: ${{ inputs.variant || 'mise' }}
       KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
       ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
-      APP_ID: "6766271119"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Variante und Provisioning vor dem Build validieren
+        env:
+          FRANKYS_APP_STORE_APP_ID: ${{ vars.FRANKYS_APP_STORE_APP_ID }}
+          BUILD_PROFILE_BASE64: ${{ secrets.BUILD_PROFILE_BASE64 }}
+          FRANKYS_BUILD_PROFILE_BASE64: ${{ secrets.FRANKYS_BUILD_PROFILE_BASE64 }}
+        run: |
+          python3 scripts/prepare_ios_variant.py preflight \
+            --profile-output "$RUNNER_TEMP/driver.mobileprovision" --github-env "$GITHUB_ENV"
 
       - name: Neuestes Xcode auswählen
         run: |
@@ -46,6 +62,16 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+
+      - name: Apple-App und Bundle-ID vor dem Build abgleichen
+        env:
+          KEY_P8_B64: ${{ secrets.APP_STORE_CONNECT_KEY_P8_BASE64 }}
+        run: node scripts/check_app_store_identity.cjs
+
+      - name: Variantenvertrag und lokale Installationsseite
+        run: |
+          python3 ios-contract-tests/AppVariantTests.py
+          python3 scripts/prepare_ios_variant.py prepare-web
 
       - name: JS-Dependencies
         run: npm ci
@@ -60,32 +86,38 @@ jobs:
         run: |
           npx cap add ios || echo "ios existiert bereits"
           npm install -D @capacitor/assets || true
-          npx @capacitor/assets generate --ios \
-            --iconBackgroundColor '#09090b' --iconBackgroundColorDark '#09090b' \
-            --splashBackgroundColor '#09090b' --splashBackgroundColorDark '#09090b' || echo "icons skip"
+          if [ "$DRIVER_APP_VARIANT" = "frankys" ]; then
+            npx @capacitor/assets generate --ios --assetPath resources/variants/frankys \
+              --iconBackgroundColor '#194B35' --iconBackgroundColorDark '#194B35' \
+              --splashBackgroundColor '#F6EDDA' --splashBackgroundColorDark '#F6EDDA'
+          else
+            npx @capacitor/assets generate --ios \
+              --iconBackgroundColor '#09090b' --iconBackgroundColorDark '#09090b' \
+              --splashBackgroundColor '#09090b' --splashBackgroundColorDark '#09090b' || echo "icons skip"
+          fi
           npx cap sync ios
 
-      - name: Privacy-Purpose-Strings in Info.plist setzen (ITMS-90683)
+      - name: Varianten-Identität und manuelles Signing setzen
         run: |
-          PLIST="ios/App/App/Info.plist"
-          set_key() {
-            /usr/libexec/PlistBuddy -c "Add :$1 string $2" "$PLIST" 2>/dev/null \
-              || /usr/libexec/PlistBuddy -c "Set :$1 $2" "$PLIST"
-          }
-          set_key NSPhotoLibraryUsageDescription "Mise Driver braucht Zugriff auf deine Fotos, um Liefer-Beweis-Fotos auszuwaehlen und hochzuladen."
-          set_key NSPhotoLibraryAddUsageDescription "Mise Driver speichert Liefer-Beweis-Fotos in deiner Mediathek."
-          set_key NSCameraUsageDescription "Mise Driver braucht die Kamera fuer QR-Login und Liefer-Beweis-Fotos."
-          set_key NSLocationWhenInUseUsageDescription "Mise Driver braucht deinen Standort, um Lieferzentrale und Kunden deine Position zu zeigen."
-          set_key NSLocationAlwaysAndWhenInUseUsageDescription "Mise Driver braucht Hintergrund-Standort fuer Live-Tracking waehrend der Lieferung."
-
-      - name: Push-Entitlement setzen (aps-environment) + manuelles Signing
-        run: |
-          ENT="ios/App/App/App.entitlements"
-          printf '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>aps-environment</key><string>production</string></dict></plist>\n' > "$ENT"
-          PBX="ios/App/App.xcodeproj/project.pbxproj"
-          perl -i -pe 's/(PRODUCT_BUNDLE_IDENTIFIER = app\.mise\.driver;)/$1\n\t\t\t\tCODE_SIGN_ENTITLEMENTS = App\/App.entitlements;/g' "$PBX"
-          perl -i -pe 's/CODE_SIGN_STYLE = Automatic;/CODE_SIGN_STYLE = Manual;\n\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = "Mise Driver AppStore CI";\n\t\t\t\tCODE_SIGN_IDENTITY = "Apple Distribution";\n\t\t\t\tDEVELOPMENT_TEAM = T82KC2CU9V;/g' "$PBX"
-          echo "Signing-Settings gesetzt"
+          python3 scripts/prepare_ios_variant.py configure-plist --path ios/App/App/Info.plist
+          python3 scripts/prepare_ios_variant.py configure-entitlements --path ios/App/App/App.entitlements
+          gem install xcodeproj --no-document --silent
+          ruby -e '
+            require "xcodeproj"
+            proj = Xcodeproj::Project.open("ios/App/App.xcodeproj")
+            target = proj.targets.find { |t| t.name == "App" }
+            abort "App target missing" unless target
+            target.build_configurations.each do |config|
+              settings = config.build_settings
+              abort "Generated bundle identity mismatch" unless settings["PRODUCT_BUNDLE_IDENTIFIER"] == ENV.fetch("BUNDLE_ID")
+              settings["CODE_SIGN_ENTITLEMENTS"] = "App/App.entitlements"
+              settings["CODE_SIGN_STYLE"] = "Manual"
+              settings["PROVISIONING_PROFILE_SPECIFIER"] = ENV.fetch("PROFILE_NAME")
+              settings["CODE_SIGN_IDENTITY"] = "Apple Distribution"
+              settings["DEVELOPMENT_TEAM"] = ENV.fetch("TEAM_ID")
+            end
+            proj.save
+          '
 
       - name: AppDelegate ersetzen (Standard-APNs)
         run: |
@@ -97,21 +129,15 @@ jobs:
           ! grep -q "PKPushRegistry\|CXProvider\|PushKit\|CallKit" ios/App/App/AppDelegate.swift
           grep -q "struct OfferEnvelope" ios/App/App/OfferContract.swift
 
-      - name: Push-Background-Mode in Info.plist
+      - name: URL-Schema und Exportangaben prüfen
         run: |
           PLIST="ios/App/App/Info.plist"
-          /usr/libexec/PlistBuddy -c "Delete :UIBackgroundModes" "$PLIST" 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes array" "$PLIST"
-          /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:0 string remote-notification" "$PLIST"
-          /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:1 string location" "$PLIST"
-          python3 scripts/ensure_url_scheme.py "$PLIST"
+          python3 scripts/ensure_url_scheme.py --scheme "$DRIVER_URL_SCHEME" --bundle-id "$BUNDLE_ID" "$PLIST"
           python3 scripts/ensure_export_compliance.py "$PLIST"
-          echo "UIBackgroundModes OK"
 
       - name: Alarm-Sound ins App-Bundle
         run: |
           cp ios-resources/alarm.caf ios/App/App/alarm.caf
-          gem install xcodeproj --no-document --silent
           ruby -e '
             require "xcodeproj"
             proj = Xcodeproj::Project.open("ios/App/App.xcodeproj")
@@ -140,7 +166,7 @@ jobs:
       - name: Build-Nummer (datums-basiert) + Version setzen
         run: |
           PBX="ios/App/App.xcodeproj/project.pbxproj"
-          BUILD_NO=$(date +%Y%m%d%H%M)
+          test -n "$BUILD_NO"
           sed -i '' "s/CURRENT_PROJECT_VERSION = [0-9.]*;/CURRENT_PROJECT_VERSION = ${BUILD_NO};/g" "$PBX"
           sed -i '' "s/MARKETING_VERSION = [0-9.]*;/MARKETING_VERSION = 1.0.0;/g" "$PBX"
           echo "BUILD_NO=${BUILD_NO}" >> "$GITHUB_ENV"
@@ -160,7 +186,6 @@ jobs:
         env:
           P12_BASE64: ${{ secrets.BUILD_CERT_P12_BASE64 }}
           P12_PASSWORD: ${{ secrets.BUILD_CERT_PASSWORD }}
-          PROFILE_BASE64: ${{ secrets.BUILD_PROFILE_BASE64 }}
         run: |
           KC="$RUNNER_TEMP/build.keychain-db"
           KCPW="ci-temp-pw"
@@ -175,8 +200,8 @@ jobs:
           echo "--- Signing-Identitaeten ---"
           security find-identity -v -p codesigning "$KC"
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-          echo -n "$PROFILE_BASE64" | base64 --decode \
-            > ~/Library/MobileDevice/Provisioning\ Profiles/mise-driver-appstore.mobileprovision
+          cp "$RUNNER_TEMP/driver.mobileprovision" \
+            "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
           echo "Profil installiert"
 
       - name: Archive
@@ -189,33 +214,26 @@ jobs:
             clean archive
           APP="$RUNNER_TEMP/App.xcarchive/Products/Applications/App.app"
           codesign -d --entitlements :- "$APP" > "$RUNNER_TEMP/archive-entitlements.plist"
-          /usr/libexec/PlistBuddy -c "Print :aps-environment" "$RUNNER_TEMP/archive-entitlements.plist" \
-            | grep -qx "production"
+          if [ "$DRIVER_APP_VARIANT" = "mise" ]; then
+            /usr/libexec/PlistBuddy -c "Print :aps-environment" "$RUNNER_TEMP/archive-entitlements.plist" | grep -qx "production"
+          else
+            ! /usr/libexec/PlistBuddy -c "Print :aps-environment" "$RUNNER_TEMP/archive-entitlements.plist"
+          fi
           test -s "$APP/alarm.caf"
-          /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes" "$APP/Info.plist" | grep -q "remote-notification"
+          if [ "$DRIVER_APP_VARIANT" = "mise" ]; then
+            /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes" "$APP/Info.plist" | grep -q "remote-notification"
+          fi
           ! /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes" "$APP/Info.plist" | grep -q "voip"
-          python3 scripts/ensure_url_scheme.py --check "$APP/Info.plist"
+          python3 scripts/ensure_url_scheme.py --check --scheme "$DRIVER_URL_SCHEME" --bundle-id "$BUNDLE_ID" "$APP/Info.plist"
+          python3 scripts/prepare_ios_variant.py check-plist --path "$APP/Info.plist"
+          python3 scripts/prepare_ios_variant.py check-capacitor-config --path "$APP/capacitor.config.json"
           python3 scripts/ensure_export_compliance.py "$APP/Info.plist" --check
           strings "$APP/App" | grep -q "mise-driver-offer"
           echo "Archive-Vertrag OK"
 
       - name: IPA exportieren
         run: |
-          cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0"><dict>
-            <key>method</key><string>app-store-connect</string>
-            <key>teamID</key><string>${TEAM_ID}</string>
-            <key>signingStyle</key><string>manual</string>
-            <key>signingCertificate</key><string>Apple Distribution</string>
-            <key>provisioningProfiles</key><dict>
-              <key>app.mise.driver</key><string>Mise Driver AppStore CI</string>
-            </dict>
-            <key>destination</key><string>export</string>
-            <key>uploadSymbols</key><true/>
-          </dict></plist>
-          EOF
+          python3 scripts/prepare_ios_variant.py export-options --path "$RUNNER_TEMP/ExportOptions.plist"
           xcodebuild -exportArchive \
             -archivePath "$RUNNER_TEMP/App.xcarchive" \
             -exportPath "$RUNNER_TEMP/export" \

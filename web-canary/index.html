@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="color-scheme" content="light">
+    <meta name="theme-color" content="#F6EDDA">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; style-src 'self'; img-src 'self'; connect-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'">
+    <title>Installationstest · Franky's Fahrer</title>
+    <link rel="stylesheet" href="style.css">
+  </head>
+  <body>
+    <main class="installation">
+      <header class="brand">
+        <img class="brand-icon" src="icon.png" width="52" height="52" alt="">
+        <p class="brand-name">Franky's <span>Fahrer</span></p>
+      </header>
+
+      <div class="test-content">
+        <h1>Installationstest</h1>
+
+        <section class="startup" aria-labelledby="startup-status">
+          <div class="startup-heading">
+            <svg class="startup-mark" viewBox="0 0 40 40" fill="none" aria-hidden="true" focusable="false">
+              <circle cx="20" cy="20" r="18.5" stroke="currentColor" stroke-width="1.5" />
+              <path d="m12 20 5.5 5.5L28 15" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <h2 id="startup-status">App gestartet</h2>
+          </div>
+          <p class="test-scope">Noch nicht für Lieferfahrten. Push, GPS und Anmeldung sind in dieser Testversion deaktiviert.</p>
+        </section>
+
+        <section class="feedback" aria-labelledby="feedback-title">
+          <h2 id="feedback-title">Deine Rückmeldung</h2>
+          <p>Bitte gib kurz Bescheid, dass du die App installieren und öffnen konntest. Nenne dazu die Build-Nummer unten.</p>
+        </section>
+      </div>
+
+      <footer class="build-info" aria-label="Angaben zur Testversion">
+        <dl>
+          <div><dt>Version</dt><dd>1.0.0</dd></div>
+          <div><dt>Build</dt><dd>__BUILD_NUMBER__</dd></div>
+        </dl>
+        <p>Lokaler Installationstest</p>
+      </footer>
+    </main>
+  </body>
+</html>

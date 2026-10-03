@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2732 2732">
+  <rect width="2732" height="2732" fill="#F6EDDA"/>
+  <path d="M1100 1080h190c105 0 190 85 190 190s-85 190-190 190h-30" fill="none" stroke="#194B35" stroke-width="48" stroke-linecap="round"/>
+  <circle cx="1100" cy="1080" r="56" fill="#194B35"/>
+  <path d="M1550 1350c-55 0-100 45-100 100 0 80 100 180 100 180s100-100 100-180c0-55-45-100-100-100z" fill="#194B35"/>
+  <circle cx="1550" cy="1450" r="32" fill="#F6EDDA"/>
+  <text x="1366" y="1810" text-anchor="middle" fill="#194B35" font-size="130" font-weight="800" font-family="-apple-system, BlinkMacSystemFont, Arial, sans-serif" letter-spacing="-4">Franky's Fahrer</text>
+  <text x="1366" y="1920" text-anchor="middle" fill="#48604D" font-size="54" font-weight="500" font-family="-apple-system, BlinkMacSystemFont, Arial, sans-serif">Für die letzte Meile in Aachen.</text>
+</svg>
