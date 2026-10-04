@@ -1,5 +1,38 @@
 import Foundation
 
+// Bundle identity and signed build metadata determine native capability gates.
+// The Frankys canary cannot be enabled by a web page or runtime token handoff.
+struct DriverRuntimeConfiguration {
+    let urlScheme: String?
+    let operationsEnabled: Bool
+
+    static var current: DriverRuntimeConfiguration {
+        DriverRuntimeConfiguration(bundleIdentifier: Bundle.main.bundleIdentifier,
+                                   info: Bundle.main.infoDictionary ?? [:])
+    }
+
+    init(bundleIdentifier: String?, info: [String: Any]) {
+        let legacyMise = bundleIdentifier == "app.mise.driver"
+        let expectedScheme: String?
+        switch bundleIdentifier {
+        case "app.mise.driver": expectedScheme = "mise-driver"
+        case "de.frankysfarm.driver": expectedScheme = "frankys-driver"
+        default: expectedScheme = nil
+        }
+        let declaredID = info["DriverExpectedBundleIdentifier"] as? String
+        let declaredScheme = info["DriverURLScheme"] as? String
+        let identityMatches = expectedScheme != nil
+            && (declaredID == bundleIdentifier || legacyMise && declaredID == nil)
+            && (declaredScheme == expectedScheme || legacyMise && declaredScheme == nil)
+        urlScheme = identityMatches ? expectedScheme : nil
+        // Missing keys preserve only the original Mise app. Unknown bundles,
+        // mismatched metadata and the installation-only variant fail closed.
+        operationsEnabled = legacyMise && identityMatches
+            && (info["DriverOperationsEnabled"] == nil || info["DriverOperationsEnabled"] as? Bool == true)
+            && info["DriverInstallationCanary"] as? Bool != true
+    }
+}
+
 // JWT claims only partition local data. Only a successful authenticated server
 // snapshot grants GPS authorization; decoding a token never grants it.
 struct GpsIdentity: Equatable {

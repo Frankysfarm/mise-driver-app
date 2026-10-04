@@ -7,6 +7,7 @@ import WebKit
 class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterDelegate {
 
     var window: UIWindow?
+    private let runtime = DriverRuntimeConfiguration.current
     private let bridgeQueue = OfferBridgeQueue()
     private var bridgeFlushWorkItem: DispatchWorkItem?
     private var webSessionObservation: NSKeyValueObservation?
@@ -15,6 +16,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         UNUserNotificationCenter.current().delegate = self
+        guard runtime.operationsEnabled else {
+            application.unregisterForRemoteNotifications()
+            return true
+        }
 
         // Default-off until the authenticated web bridge supplies both the
         // canonical operational state and an enabled backend policy.
@@ -33,34 +38,41 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 
     func applicationWillResignActive(_ application: UIApplication) {}
     func applicationDidEnterBackground(_ application: UIApplication) {
+        guard runtime.operationsEnabled else { return }
         LocationTracking.shared.enteredBackground()
     }
     func applicationWillEnterForeground(_ application: UIApplication) {}
     func applicationDidBecomeActive(_ application: UIApplication) {
+        guard runtime.operationsEnabled else {
+            application.unregisterForRemoteNotifications()
+            return
+        }
         refreshNativeGPSAuthorization()
         scheduleBridgeFlush(attempt: 0)
     }
     func applicationWillTerminate(_ application: UIApplication) {
+        guard runtime.operationsEnabled else { return }
         LocationTracking.shared.apply(state: "offline", policyEnabled: false)
     }
 
     func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
-        if url.scheme == "mise-driver", url.host == "offer-ack",
+        guard runtime.operationsEnabled else { return url.scheme == runtime.urlScheme }
+        if url.scheme == runtime.urlScheme, url.host == "offer-ack",
            let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
            let eventId = components.queryItems?.first(where: { $0.name == "event_id" })?.value {
             acknowledgeBridgeEvent(eventId)
             return true
         }
-        if url.scheme == "mise-driver", url.host == "bridge-ready" {
+        if url.scheme == runtime.urlScheme, url.host == "bridge-ready" {
             refreshNativeGPSAuthorization()
             scheduleBridgeFlush(attempt: 0)
             return true
         }
-        if url.scheme == "mise-driver", url.host == "gps-logout" {
+        if url.scheme == runtime.urlScheme, url.host == "gps-logout" {
             LocationTracking.shared.logout()
             return true
         }
-        if url.scheme == "mise-driver", url.host == "gps-refresh" {
+        if url.scheme == runtime.urlScheme, url.host == "gps-refresh" {
             refreshNativeGPSAuthorization()
             return true
         }
@@ -73,10 +85,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 
     // Standard-Remote-Notifications -> Capacitor (normaler Push)
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        guard runtime.operationsEnabled else {
+            application.unregisterForRemoteNotifications()
+            return
+        }
         NotificationCenter.default.post(name: .capacitorDidRegisterForRemoteNotifications, object: deviceToken)
     }
 
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        guard runtime.operationsEnabled else { return }
         NotificationCenter.default.post(name: .capacitorDidFailToRegisterForRemoteNotifications, object: error)
     }
 
@@ -86,6 +103,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         didReceiveRemoteNotification userInfo: [AnyHashable: Any],
         fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
     ) {
+        guard runtime.operationsEnabled else { completionHandler(.noData); return }
         bridgeOffer(from: userInfo, stage: "received")
         completionHandler(.newData)
     }
@@ -95,6 +113,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
+        guard runtime.operationsEnabled else { completionHandler([]); return }
         bridgeOffer(from: notification.request.content.userInfo, stage: "displayed")
         if #available(iOS 14.0, *) {
             completionHandler([.banner, .sound, .badge])
@@ -108,6 +127,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
+        guard runtime.operationsEnabled else { completionHandler(); return }
         bridgeOffer(from: response.notification.request.content.userInfo, stage: "opened")
         completionHandler()
     }
@@ -182,6 +202,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     }
 
     private func refreshNativeGPSAuthorization() {
+        guard runtime.operationsEnabled else { return }
         _ = observeWebSessionNavigation()
         if let url = observedWebView?.url, GpsWebSessionNavigation.isSignedOut(url, serverURL: serverURL) {
             LocationTracking.shared.logout()

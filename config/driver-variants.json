@@ -1,0 +1,22 @@
+{
+  "mise": {
+    "bundle_id": "app.mise.driver",
+    "display_name": "Mise Driver",
+    "url_scheme": "mise-driver",
+    "server_origin": "https://mise-gastro.de",
+    "web_dir": "web",
+    "operations_enabled": true,
+    "installation_canary": false,
+    "team_id": "T82KC2CU9V"
+  },
+  "frankys": {
+    "bundle_id": "de.frankysfarm.driver",
+    "display_name": "Franky's Fahrer",
+    "url_scheme": "frankys-driver",
+    "server_origin": "https://mise-gastro.de",
+    "web_dir": "web-canary",
+    "operations_enabled": false,
+    "installation_canary": true,
+    "team_id": "T82KC2CU9V"
+  }
+}

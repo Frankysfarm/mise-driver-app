@@ -41,7 +41,7 @@ fi
 grep -q 'SecureGpsQueue.swift' setup-mac.sh
 grep -q 'SecureGpsQueue.swift' .github/workflows/ios-testflight.yml
 alarm_end_line=$(awk '/unless target.resources_build_phase.files_references.include.*alarm_ref/{inside=1} inside && /^[[:space:]]+end$/{print NR; exit}' .github/workflows/ios-testflight.yml)
-project_save_line=$(awk '/^[[:space:]]+proj.save$/{print NR; exit}' .github/workflows/ios-testflight.yml)
+project_save_line=$(awk '/name: Alarm-Sound/{alarm=1} alarm && /^[[:space:]]+proj.save$/{print NR; exit}' .github/workflows/ios-testflight.yml)
 if [ -z "$alarm_end_line" ] || [ -z "$project_save_line" ] || [ "$project_save_line" -le "$alarm_end_line" ]; then
   echo "Xcode project save must remain outside alarm.caf conditional" >&2
   exit 1
