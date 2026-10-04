@@ -317,8 +317,8 @@ jobs:
               const detail = await api(`/v1/builds/${build.id}/buildBetaDetail`);
               testingState = detail.data?.attributes?.internalBuildState ?? 'UNKNOWN';
               if (!groupAssigned) {
-                const assigned = await api(`/v1/builds/${build.id}/betaGroups?limit=200`);
-                groupAssigned = assigned.data?.some(group => group.id === internal.id) === true;
+                const assigned = await api(`/v1/betaGroups/${internal.id}/relationships/builds?limit=200`);
+                groupAssigned = assigned.data?.some(item => item.type === 'builds' && item.id === build.id) === true;
               }
               console.log(`Build ${buildNumber}: interner Teststatus ${testingState}, Gruppe zugewiesen: ${groupAssigned}`);
               if (groupAssigned && ['READY_FOR_BETA_TESTING', 'IN_BETA_TESTING'].includes(testingState)) break;
