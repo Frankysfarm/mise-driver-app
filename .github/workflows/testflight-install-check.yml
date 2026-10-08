@@ -1,0 +1,41 @@
+name: TestFlight installation read-only check
+
+# Fixed app/build/owner scope. Uses the existing upload API key only for GETs.
+# Run only after independent source review; no invites, assignments, access changes or uploads.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout reviewed diagnostic
+        uses: actions/checkout@v4
+
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Mocked read-only and privacy checks
+        run: node --test ios-contract-tests/TestFlightInstallCheckTests.cjs
+
+      - name: Read exact TestFlight availability
+        env:
+          KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          KEY_P8_B64: ${{ secrets.APP_STORE_CONNECT_KEY_P8_BASE64 }}
+        run: node scripts/testflight-install-check.mjs
+
+      - name: Save sanitized status only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: testflight-install-check
+          path: ${{ runner.temp }}/testflight-install-check.json
+          if-no-files-found: error
+          retention-days: 7
