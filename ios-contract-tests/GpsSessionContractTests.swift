@@ -119,4 +119,56 @@ expect(!DriverRuntimeConfiguration(bundleIdentifier: "unrecognized.app", info: [
 expect(!DriverRuntimeConfiguration(bundleIdentifier: "app.mise.driver", info: canaryInfo).operationsEnabled, "Bundle/config mismatch fails closed")
 expect(!DriverRuntimeConfiguration(bundleIdentifier: nil, info: [:]).operationsEnabled, "Missing bundle identity fails closed")
 expect(!DriverRuntimeConfiguration(bundleIdentifier: "app.mise.driver", info: ["DriverOperationsEnabled": false]).operationsEnabled, "Mise capability switch may also explicitly disable operations")
+expect(legacyRuntime.serverURL?.absoluteString == "https://mise-gastro.de", "Original signed app retains production origin")
+expect(legacyRuntime.endpoint(path: "/api/driver/v2/snapshot")?.absoluteString == "https://mise-gastro.de/api/driver/v2/snapshot", "Production snapshot endpoint remains identical")
+expect(legacyRuntime.endpoint(path: "/api/driver/v2/gps/events")?.absoluteString == "https://mise-gastro.de/api/driver/v2/gps/events", "Production GPS endpoint remains identical")
+let previewOrigin = "https://mais-vorschau-178-104-106-72.sslip.io"
+let previewInfo: [String: Any] = ["DriverExpectedBundleIdentifier": "app.mise.driver", "DriverURLScheme": "mise-driver",
+                                "DriverOperationsEnabled": true, "DriverInstallationCanary": false,
+                                "DriverServerOrigin": previewOrigin]
+let previewRuntime = DriverRuntimeConfiguration(bundleIdentifier: "app.mise.driver", info: previewInfo)
+expect(previewRuntime.operationsEnabled && previewRuntime.urlScheme == "mise-driver", "Explicit preview retains operational APNs app identity")
+expect(previewRuntime.endpoint(path: "/api/driver/v2/snapshot")?.absoluteString == previewOrigin + "/api/driver/v2/snapshot", "Preview authorization stays on the compiled origin")
+expect(previewRuntime.endpoint(path: "/api/driver/v2/gps/events")?.absoluteString == previewOrigin + "/api/driver/v2/gps/events", "Preview GPS stays on the authorization origin")
+expect(previewRuntime.contains(URL(string: previewOrigin + "/fahrer/app")!), "Configured WebView origin can supply its current session")
+expect(!previewRuntime.contains(URL(string: "https://mise-gastro.de/fahrer/app")!), "Production WebView cannot authorize a preview GPS session")
+expect(!previewRuntime.contains(URL(string: previewOrigin + ":8443/fahrer/app")!), "A custom port cannot hand off a native session")
+expect(!previewRuntime.contains(URL(string: "http://mais-vorschau-178-104-106-72.sslip.io/fahrer/app")!), "HTTP cannot hand off a native session")
+expect(!previewRuntime.contains(URL(string: "https://user@mais-vorschau-178-104-106-72.sslip.io/fahrer/app")!), "Userinfo cannot hand off a native session")
+expect(previewRuntime.endpoint(path: "https://other.example/api/driver/v2/gps/events") == nil, "Absolute request URL injection fails closed")
+expect(previewRuntime.endpoint(path: "//other.example/api/driver/v2/snapshot") == nil, "Protocol-relative injection fails closed")
+expect(previewRuntime.endpoint(path: "/api/driver/v2/snapshot?redirect=other") == nil, "Request query injection fails closed")
+expect(GpsWebSessionNavigation.isSignedOut(URL(string: previewOrigin + "/fahrer/login")!, serverURL: previewRuntime.serverURL!), "Preview login revokes GPS against its own backend")
+for origin in ["http://mise-gastro.de", "https://other.example", "https://mise-gastro.de:8443", "https://user@mise-gastro.de",
+               "https://mise-gastro.de/path", "https://mise-gastro.de?x=1", "https://mise-gastro.de#fragment"] {
+    var invalidInfo = previewInfo
+    invalidInfo["DriverServerOrigin"] = origin
+    let invalid = DriverRuntimeConfiguration(bundleIdentifier: "app.mise.driver", info: invalidInfo)
+    expect(!invalid.operationsEnabled && invalid.serverURL == nil && invalid.endpoint(path: "/api/driver/v2/snapshot") == nil, "Invalid signed origin cannot enable native transport")
+}
+var invalidTypeInfo = previewInfo
+invalidTypeInfo["DriverServerOrigin"] = 42
+expect(!DriverRuntimeConfiguration(bundleIdentifier: "app.mise.driver", info: invalidTypeInfo).operationsEnabled, "Wrong signed origin type fails closed")
+expect(canaryRuntime.serverURL == nil && canaryRuntime.endpoint(path: "/api/driver/v2/snapshot") == nil, "Canary cannot acquire an operational server")
+var previewCanaryInfo = canaryInfo
+previewCanaryInfo["DriverServerOrigin"] = previewOrigin
+expect(!DriverRuntimeConfiguration(bundleIdentifier: "de.frankysfarm.driver", info: previewCanaryInfo).operationsEnabled, "An operational origin cannot enable the canary")
+let partitionDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("native-origin-test-\(UUID().uuidString)")
+try FileManager.default.createDirectory(at: partitionDirectory, withIntermediateDirectories: true)
+defer { try? FileManager.default.removeItem(at: partitionDirectory) }
+let productionQueueURL = legacyRuntime.queueFileURL(in: partitionDirectory)!
+let previewQueueURL = previewRuntime.queueFileURL(in: partitionDirectory)!
+expect(productionQueueURL.lastPathComponent == "gps-queue-v2.enc", "Production queue filename remains byte-compatible")
+expect(previewQueueURL != productionQueueURL, "Preview storage cannot alias the production queue")
+expect(previewQueueURL == previewRuntime.queueFileURL(in: partitionDirectory), "Preview queue partition is deterministic across app launches")
+let oldQueue = GpsQueueEnvelope(owner: ownerA, events: [event("old-production")])
+try JSONSerialization.data(withJSONObject: oldQueue.storage).write(to: productionQueueURL)
+expect((try? Data(contentsOf: previewQueueURL)) == nil, "An existing same-identity production queue cannot be carried/replayed by preview")
+let previewQueue = GpsQueueEnvelope(owner: ownerA, events: [event("new-preview")])
+try JSONSerialization.data(withJSONObject: previewQueue.storage).write(to: previewQueueURL)
+let oldStored = try JSONSerialization.jsonObject(with: Data(contentsOf: productionQueueURL))
+let newStored = try JSONSerialization.jsonObject(with: Data(contentsOf: previewQueueURL))
+expect(GpsQueueEnvelope(stored: oldStored, owner: ownerA)?.events.first?["action_id"] as? String == "old-production", "Preview writes preserve the old production partition")
+expect(GpsQueueEnvelope(stored: newStored, owner: ownerA)?.events.first?["action_id"] as? String == "new-preview", "Preview replay sees only points collected in its own partition")
+expect(canaryRuntime.queueFileURL(in: partitionDirectory) == nil, "Canary cannot acquire a GPS storage partition")
 print("GPS session contract tests: \(checks) passed")

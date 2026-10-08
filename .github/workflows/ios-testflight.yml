@@ -23,6 +23,11 @@ on:
         type: choice
         default: mise
         options: [mise, frankys]
+      backend_target:
+        description: "production = existing server; protected_preview = Franky's protected test server"
+        type: choice
+        default: production
+        options: [production, protected_preview]
   push:
     tags:
       - 'ios-release-*'
@@ -36,6 +41,7 @@ jobs:
       SCHEME: App
       TEAM_ID: T82KC2CU9V
       DRIVER_APP_VARIANT: ${{ inputs.variant || 'mise' }}
+      DRIVER_BACKEND_TARGET: ${{ inputs.backend_target || 'production' }}
       KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
       ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
     steps:
@@ -71,6 +77,7 @@ jobs:
       - name: Variantenvertrag und lokale Installationsseite
         run: |
           python3 ios-contract-tests/AppVariantTests.py
+          node --test ios-contract-tests/TestFlightBuildGroupTests.cjs
           python3 scripts/prepare_ios_variant.py prepare-web
 
       - name: JS-Dependencies
@@ -317,8 +324,26 @@ jobs:
               const detail = await api(`/v1/builds/${build.id}/buildBetaDetail`);
               testingState = detail.data?.attributes?.internalBuildState ?? 'UNKNOWN';
               if (!groupAssigned) {
-                const assigned = await api(`/v1/builds/${build.id}/betaGroups?limit=200`);
-                groupAssigned = assigned.data?.some(group => group.id === internal.id) === true;
+                // https://developer.apple.com/documentation/appstoreconnectapi/get-v1-betagroups-_id_-relationships-builds
+                const linkagePath = `/v1/betaGroups/${internal.id}/relationships/builds`;
+                let pagePath = `${linkagePath}?limit=200`;
+                const seenPages = new Set();
+                while (pagePath && !groupAssigned) {
+                  if (seenPages.has(pagePath) || seenPages.size >= 100) throw new Error('Invalid beta-group pagination');
+                  seenPages.add(pagePath);
+                  const assigned = await api(pagePath);
+                  if (!Array.isArray(assigned.data)) throw new Error('Invalid beta-group build linkage response');
+                  groupAssigned = assigned.data.some(item => item.type === 'builds' && item.id === build.id);
+                  if (!groupAssigned && assigned.links?.next) {
+                    const next = new URL(assigned.links.next, 'https://api.appstoreconnect.apple.com');
+                    if (next.origin !== 'https://api.appstoreconnect.apple.com' || next.pathname !== linkagePath) {
+                      throw new Error('Unexpected beta-group pagination URL');
+                    }
+                    pagePath = next.pathname + next.search;
+                  } else {
+                    pagePath = null;
+                  }
+                }
               }
               console.log(`Build ${buildNumber}: interner Teststatus ${testingState}, Gruppe zugewiesen: ${groupAssigned}`);
               if (groupAssigned && ['READY_FOR_BETA_TESTING', 'IN_BETA_TESTING'].includes(testingState)) break;

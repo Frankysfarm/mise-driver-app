@@ -5,6 +5,9 @@ import Foundation
 struct DriverRuntimeConfiguration {
     let urlScheme: String?
     let operationsEnabled: Bool
+    let serverURL: URL?
+    static let productionOrigin = "https://mise-gastro.de"
+    static let allowedOrigins = Set([productionOrigin, "https://mais-vorschau-178-104-106-72.sslip.io"])
 
     static var current: DriverRuntimeConfiguration {
         DriverRuntimeConfiguration(bundleIdentifier: Bundle.main.bundleIdentifier,
@@ -25,11 +28,37 @@ struct DriverRuntimeConfiguration {
             && (declaredID == bundleIdentifier || legacyMise && declaredID == nil)
             && (declaredScheme == expectedScheme || legacyMise && declaredScheme == nil)
         urlScheme = identityMatches ? expectedScheme : nil
+        let declaredOrigin = info["DriverServerOrigin"] as? String
+        let origin = declaredOrigin ?? Self.productionOrigin
+        let originMatches = (info["DriverServerOrigin"] == nil || declaredOrigin != nil)
+            && Self.allowedOrigins.contains(origin)
         // Missing keys preserve only the original Mise app. Unknown bundles,
         // mismatched metadata and the installation-only variant fail closed.
-        operationsEnabled = legacyMise && identityMatches
+        operationsEnabled = legacyMise && identityMatches && originMatches
             && (info["DriverOperationsEnabled"] == nil || info["DriverOperationsEnabled"] as? Bool == true)
             && info["DriverInstallationCanary"] as? Bool != true
+        serverURL = operationsEnabled ? URL(string: origin) : nil
+    }
+
+    func endpoint(path: String) -> URL? {
+        guard operationsEnabled, let serverURL,
+              ["/api/driver/v2/snapshot", "/api/driver/v2/gps/events"].contains(path) else { return nil }
+        return URL(string: path, relativeTo: serverURL)?.absoluteURL
+    }
+
+    func contains(_ url: URL) -> Bool {
+        guard operationsEnabled, let serverURL else { return false }
+        return url.scheme == "https" && url.host == serverURL.host && url.port == nil
+            && url.user == nil && url.password == nil
+    }
+
+    func queueFileURL(in directory: URL) -> URL? {
+        guard operationsEnabled, let serverURL, let host = serverURL.host else { return nil }
+        // Keep the original production queue intact. A compiled preview build
+        // must not decrypt/replay its points, even with the same auth identity.
+        let filename = serverURL.absoluteString == Self.productionOrigin
+            ? "gps-queue-v2.enc" : "gps-queue-v2-\(host).enc"
+        return directory.appendingPathComponent(filename)
     }
 }
 
@@ -162,7 +191,8 @@ final class SecureGpsQueue {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         try? FileManager.default.createDirectory(at: support, withIntermediateDirectories: true,
           attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication])
-        fileURL = support.appendingPathComponent("gps-queue-v2.enc")
+        fileURL = DriverRuntimeConfiguration.current.queueFileURL(in: support)
+            ?? support.appendingPathComponent("gps-queue-disabled.enc")
         // Old plaintext queues have no provable owner. Never assign their
         // coordinates to whichever account happens to sign in after upgrading.
         UserDefaults.standard.removeObject(forKey: "mise.gps.queue.v2")

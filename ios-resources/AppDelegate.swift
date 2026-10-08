@@ -12,7 +12,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     private var bridgeFlushWorkItem: DispatchWorkItem?
     private var webSessionObservation: NSKeyValueObservation?
     private weak var observedWebView: WKWebView?
-    private let serverURL = URL(string: "https://mise-gastro.de")!
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         UNUserNotificationCenter.current().delegate = self
@@ -202,9 +201,16 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     }
 
     private func refreshNativeGPSAuthorization() {
-        guard runtime.operationsEnabled else { return }
+        guard runtime.operationsEnabled, let serverURL = runtime.serverURL else { return }
         _ = observeWebSessionNavigation()
-        if let url = observedWebView?.url, GpsWebSessionNavigation.isSignedOut(url, serverURL: serverURL) {
+        // A WebView that has not loaded yet cannot authorize GPS, but it is not
+        // evidence of logout/account switch and must not clear an offline queue.
+        guard let url = observedWebView?.url else { return }
+        guard runtime.contains(url) else {
+            LocationTracking.shared.logout()
+            return
+        }
+        if GpsWebSessionNavigation.isSignedOut(url, serverURL: serverURL) {
             LocationTracking.shared.logout()
         } else {
             LocationTracking.shared.refreshServerAuthorization()
@@ -213,6 +219,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 
     @discardableResult
     private func observeWebSessionNavigation() -> Bool {
+        guard runtime.operationsEnabled, let serverURL = runtime.serverURL else { return false }
         guard let webView = findBridgeController(window?.rootViewController)?.bridge?.webView else { return false }
         guard observedWebView !== webView else { return true }
         webSessionObservation?.invalidate()
@@ -223,7 +230,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             let update = { [weak self, weak webView] in
                 guard let self, let webView, self.observedWebView === webView,
                       let url = webView.url else { return }
-                if GpsWebSessionNavigation.isSignedOut(url, serverURL: self.serverURL) {
+                if !self.runtime.contains(url) || GpsWebSessionNavigation.isSignedOut(url, serverURL: serverURL) {
                     LocationTracking.shared.logout()
                 }
             }

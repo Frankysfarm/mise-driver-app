@@ -14,8 +14,21 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def backend_origin(target):
+    backends = json.loads((ROOT / 'config/driver-backends.json').read_text())
+    if target not in backends:
+        raise ValueError('Unknown DRIVER_BACKEND_TARGET; expected production or protected_preview.')
+    origin = backends[target]
+    url = urlsplit(origin)
+    if (url.scheme != 'https' or not url.hostname or url.username or url.password or url.port
+            or url.path or url.query or url.fragment or origin != 'https://' + url.hostname):
+        raise ValueError('Driver backend must be an exact compiled HTTPS origin.')
+    return origin
 
 
 def resolve_variant(environ):
@@ -23,7 +36,8 @@ def resolve_variant(environ):
     name = environ.get('DRIVER_APP_VARIANT', 'mise')
     if name not in variants:
         raise ValueError('Unknown DRIVER_APP_VARIANT; expected mise or frankys.')
-    variant = {'name': name, **variants[name]}
+    target = environ.get('DRIVER_BACKEND_TARGET', 'production')
+    variant = {'name': name, **variants[name], 'backend_target': target, 'server_origin': backend_origin(target)}
     validate_variant(variant)
     return variant
 
@@ -34,7 +48,8 @@ def validate_variant(variant):
     if (not (mise or frankys)
             or variant.get('url_scheme') != ('mise-driver' if mise else 'frankys-driver')
             or variant.get('web_dir') != ('web' if mise else 'web-canary')
-            or variant.get('server_origin') != 'https://mise-gastro.de'
+            or variant.get('server_origin') != backend_origin(variant.get('backend_target', 'production'))
+            or frankys and variant.get('backend_target', 'production') != 'production'
             or variant.get('team_id') != 'T82KC2CU9V'
             or variant.get('installation_canary') is not frankys
             or variant.get('operations_enabled') is not mise):
@@ -114,9 +129,10 @@ def check_capacitor_config(config, variant):
     validate_variant(variant)
     server = config.get('server', {})
     expected_url = None if variant['installation_canary'] else variant['server_origin'] + '/fahrer/app'
+    navigation = [] if variant['installation_canary'] else [urlsplit(variant['server_origin']).hostname]
     if (config.get('appId') != variant['bundle_id'] or config.get('appName') != variant['display_name']
             or server.get('url') != expected_url
-            or variant['installation_canary'] and server.get('allowNavigation') != []):
+            or server.get('allowNavigation') != navigation):
         raise ValueError('Bundled Capacitor identity/navigation does not match the selected variant.')
 
 

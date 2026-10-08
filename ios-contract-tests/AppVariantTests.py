@@ -27,6 +27,90 @@ def profile(bundle='de.frankysfarm.driver'):
 
 
 class AppVariantTests(unittest.TestCase):
+    def test_both_build_targets_allow_only_the_exact_selected_host(self):
+        for target, host in [('production', 'mise-gastro.de'), ('protected_preview', 'mais-vorschau-178-104-106-72.sslip.io')]:
+            with self.subTest(target=target):
+                variant = VARIANT.resolve_variant({'DRIVER_BACKEND_TARGET': target})
+                script = "const v=require('./scripts/app-variant.cjs');process.stdout.write(JSON.stringify(v.capacitorIdentity(v.resolveVariant('mise',process.argv[1]))));"
+                config = json.loads(subprocess.check_output(['node', '-e', script, target], cwd=ROOT))
+                self.assertEqual(config['server']['allowNavigation'], [host])
+                self.assertTrue(all('*' not in entry for entry in config['server']['allowNavigation']))
+                VARIANT.check_capacitor_config(config, variant)
+                for navigation in [[host, 'mise.app'], ['*.' + host], ['other.example'], [host, '*.mise-gastro.de']]:
+                    wrong = copy.deepcopy(config); wrong['server']['allowNavigation'] = navigation
+                    with self.subTest(navigation=navigation), self.assertRaises(ValueError):
+                        VARIANT.check_capacitor_config(wrong, variant)
+
+    def test_foreign_webview_host_is_rejected_before_native_credentials_or_gps(self):
+        delegate = (ROOT / 'ios-resources/AppDelegate.swift').read_text()
+        handoff = delegate.split('private func refreshNativeGPSAuthorization()', 1)[1].split('@discardableResult', 1)[0]
+        self.assertIn('guard runtime.contains(url) else {\n            LocationTracking.shared.logout()\n            return\n        }', handoff)
+        self.assertLess(handoff.index('guard runtime.contains(url)'), handoff.index('LocationTracking.shared.refreshServerAuthorization()'))
+        self.assertIn('if !self.runtime.contains(url) || GpsWebSessionNavigation.isSignedOut', delegate)
+        runtime = (ROOT / 'ios-resources/SecureGpsQueue.swift').read_text().split('func contains(_ url: URL)', 1)[1].split('func queueFileURL', 1)[0]
+        self.assertIn('url.host == serverURL.host', runtime)
+        self.assertIn('url.port == nil', runtime)
+        self.assertIn('url.user == nil && url.password == nil', runtime)
+
+    def test_explicit_preview_is_one_origin_for_web_and_signed_plist(self):
+        origin = 'https://mais-vorschau-178-104-106-72.sslip.io'
+        environ = {'DRIVER_APP_VARIANT': 'mise', 'DRIVER_BACKEND_TARGET': 'protected_preview'}
+        variant = VARIANT.resolve_variant(environ)
+        node = "const v=require('./scripts/app-variant.cjs');const r=v.resolveVariant('mise','protected_preview');process.stdout.write(JSON.stringify({variant:r,config:v.capacitorIdentity(r)}));"
+        resolved = json.loads(subprocess.check_output(['node', '-e', node], cwd=ROOT))
+        self.assertEqual(resolved['variant'], variant)
+        self.assertEqual(variant['bundle_id'], 'app.mise.driver')
+        self.assertEqual(resolved['config']['server']['url'], origin + '/fahrer/app')
+        self.assertEqual(resolved['config']['server']['allowNavigation'], [url_host := origin.removeprefix('https://')])
+        self.assertNotIn('*', url_host)
+        plist = {'CFBundleIdentifier': variant['bundle_id']}
+        VARIANT.configure_plist(plist, variant)
+        self.assertEqual(plist['DriverServerOrigin'], origin)
+        self.assertTrue(plist['DriverOperationsEnabled'])
+        VARIANT.check_plist(plist, variant)
+        VARIANT.check_capacitor_config(resolved['config'], variant)
+
+    def test_canary_cannot_select_operational_preview(self):
+        with self.assertRaises(ValueError):
+            VARIANT.resolve_variant({'DRIVER_APP_VARIANT': 'frankys', 'DRIVER_BACKEND_TARGET': 'protected_preview'})
+        result = subprocess.run(['node', '-e', "require('./scripts/app-variant.cjs').resolveVariant('frankys','protected_preview')"], cwd=ROOT, capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_backend_target_is_a_compiled_name_not_a_url(self):
+        for target in ('unknown', 'https://other.example', 'http://mise-gastro.de', 'production\nprotected_preview'):
+            with self.subTest(target=target), self.assertRaises(ValueError):
+                VARIANT.resolve_variant({'DRIVER_BACKEND_TARGET': target})
+            result = subprocess.run(['node', '-e', "require('./scripts/app-variant.cjs').resolveVariant('mise',process.argv[1])", target], cwd=ROOT, capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+
+    def test_preview_archive_rejects_mixed_url_and_navigation(self):
+        variant = VARIANT.resolve_variant({'DRIVER_BACKEND_TARGET': 'protected_preview'})
+        script = "const v=require('./scripts/app-variant.cjs');process.stdout.write(JSON.stringify(v.capacitorIdentity(v.resolveVariant('mise','protected_preview'))));"
+        config = json.loads(subprocess.check_output(['node', '-e', script], cwd=ROOT))
+        for key, value in [('url', 'https://mise-gastro.de/fahrer/app'), ('allowNavigation', ['*.sslip.io']), ('allowNavigation', ['mise-gastro.de'])]:
+            wrong = copy.deepcopy(config); wrong['server'][key] = value
+            with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                VARIANT.check_capacitor_config(wrong, variant)
+
+    def test_origin_tampering_rejected_by_both_resolvers(self):
+        variant = VARIANT.resolve_variant({'DRIVER_BACKEND_TARGET': 'protected_preview'})
+        for origin in ('https://other.example', 'http://mise-gastro.de', 'https://mise-gastro.de:8443',
+                       'https://user@mise-gastro.de', 'https://mise-gastro.de/path', 'https://mise-gastro.de?x=1',
+                       'https://mise-gastro.de#fragment'):
+            candidate = {**variant, 'server_origin': origin}
+            with self.subTest(origin=origin), self.assertRaises(ValueError): VARIANT.validate_variant(candidate)
+            result = subprocess.run(['node', '-e', "require('./scripts/app-variant.cjs').capacitorIdentity(JSON.parse(process.argv[1]))", json.dumps(candidate)], cwd=ROOT, capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+
+    def test_native_endpoint_calls_use_the_signed_runtime(self):
+        source = (ROOT / 'ios-resources/LocationTracking.swift').read_text()
+        self.assertIn('runtime.endpoint(path: "/api/driver/v2/snapshot")', source)
+        self.assertIn('runtime.endpoint(path: "/api/driver/v2/gps/events")', source)
+        self.assertNotIn('URL(string: "https://mise-gastro.de/api/driver/', source)
+        delegate = (ROOT / 'ios-resources/AppDelegate.swift').read_text()
+        self.assertIn('let serverURL = runtime.serverURL', delegate)
+        self.assertIn('runtime.contains(url)', delegate)
+
     def test_default_preserves_mise(self):
         v = VARIANT.resolve_variant({})
         self.assertEqual((v['name'], v['bundle_id'], v['display_name'], v['url_scheme']),
@@ -156,7 +240,7 @@ class AppVariantTests(unittest.TestCase):
                 result = subprocess.run(['node', '-e', command, json.dumps(candidate)], cwd=ROOT, capture_output=True)
                 self.assertNotEqual(result.returncode, 0)
 
-    def test_effective_capacitor_config_is_local_for_canary_and_unchanged_for_mise(self):
+    def test_effective_capacitor_config_is_local_for_canary_and_exact_host_for_mise(self):
         for name in ('mise', 'frankys'):
             script = "const v=require('./scripts/app-variant.cjs');process.stdout.write(JSON.stringify(v.capacitorIdentity(v.resolveVariant(process.argv[1]))));"
             config = json.loads(subprocess.check_output(['node', '-e', script, name], cwd=ROOT))
@@ -167,7 +251,7 @@ class AppVariantTests(unittest.TestCase):
                 self.assertEqual(config['server']['allowNavigation'], [])
             else:
                 self.assertEqual(config['server'], {'url': 'https://mise-gastro.de/fahrer/app', 'cleartext': False,
-                                 'androidScheme': 'https', 'allowNavigation': ['mise-gastro.de', '*.mise-gastro.de', 'mise.app', '*.mise.app']})
+                                 'androidScheme': 'https', 'allowNavigation': ['mise-gastro.de']})
 
     def test_archive_gate_rejects_remote_canary_or_incorrect_identity(self):
         variant = VARIANT.resolve_variant({'DRIVER_APP_VARIANT': 'frankys'})

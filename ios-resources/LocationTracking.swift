@@ -7,6 +7,7 @@ final class LocationTracking: NSObject, CLLocationManagerDelegate {
     static let shared = LocationTracking()
     private let manager = CLLocationManager()
     private let defaults = UserDefaults.standard
+    private let runtime = DriverRuntimeConfiguration.current
     private let sequenceKey = "mise.gps.sequence.v2"
     private let sessionKey = "mise.gps.session.v2"
     private let installationKey = "mise.gps.installation.v2"
@@ -52,7 +53,7 @@ final class LocationTracking: NSObject, CLLocationManagerDelegate {
             defaults.set(UUID().uuidString.lowercased(), forKey: sessionKey)
             defaults.set(0, forKey: sequenceKey)
         }
-        guard DriverRuntimeConfiguration.current.operationsEnabled,
+        guard runtime.operationsEnabled,
               policyEnabled, allowed.contains(state), let context = session.context,
               session.matches(context), session.authorizedSince != nil,
               UIApplication.shared.applicationState == .active || backgroundPolicyEnabled else {
@@ -73,7 +74,7 @@ final class LocationTracking: NSObject, CLLocationManagerDelegate {
     func refreshServerAuthorization() {
         precondition(Thread.isMainThread)
         guard let context = currentContext(),
-              let url = URL(string: "https://mise-gastro.de/api/driver/v2/snapshot") else {
+              let url = runtime.endpoint(path: "/api/driver/v2/snapshot") else {
             apply(state: "offline", policyEnabled: false); return
         }
         authorizationTask?.cancel()
@@ -216,7 +217,7 @@ final class LocationTracking: NSObject, CLLocationManagerDelegate {
               let event = SecureGpsQueue.shared.load(for: context.identity).events.first,
               let actionID = event["action_id"] as? String,
               let body = try? JSONSerialization.data(withJSONObject: event),
-              let url = URL(string: "https://mise-gastro.de/api/driver/v2/gps/events") else { return }
+              let url = runtime.endpoint(path: "/api/driver/v2/gps/events") else { return }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.timeoutInterval = 20
@@ -285,7 +286,7 @@ final class LocationTracking: NSObject, CLLocationManagerDelegate {
 
     private func currentContext() -> GpsRequestContext? {
         precondition(Thread.isMainThread)
-        guard DriverRuntimeConfiguration.current.operationsEnabled else { return nil }
+        guard runtime.operationsEnabled else { return nil }
         if let token = defaults.string(forKey: credentialHandoffKey) {
             defaults.removeObject(forKey: credentialHandoffKey)
             let previous = session.context
