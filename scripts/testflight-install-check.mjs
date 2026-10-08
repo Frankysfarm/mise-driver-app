@@ -18,7 +18,7 @@ const ROLES = ['ADMIN', 'FINANCE', 'ACCOUNT_HOLDER', 'SALES', 'MARKETING', 'APP_
 const SAFE_CODES = new Set(['READ_ONLY_REQUIRED', 'UNSAFE_URL', 'UNSAFE_PAGINATION',
   'PAGINATION_CYCLE', 'PAGE_LIMIT', 'REQUEST_LIMIT', 'RESPONSE_TOO_LARGE', 'INVALID_RESPONSE',
   'HTTP_UNAUTHORIZED', 'HTTP_FORBIDDEN', 'HTTP_NOT_FOUND', 'HTTP_RATE_LIMITED', 'HTTP_ERROR',
-  'NETWORK_ERROR', 'TIMEOUT', 'AMBIGUOUS_OWNER', 'APP_IDENTITY_MISMATCH',
+  'NETWORK_ERROR', 'TIMEOUT', 'AMBIGUOUS_OWNER', 'CONFLICTING_OWNER_PROFILE', 'OWNER_PROFILE_LIMIT', 'APP_IDENTITY_MISMATCH',
   'EXACT_BUILD_NOT_FOUND', 'GROUP_LIMIT', 'CI_REQUIRED', 'CREDENTIALS_UNAVAILABLE',
   'SIGNING_FAILED', 'OUTPUT_FAILED', 'CHECK_FAILED']);
 
@@ -131,6 +131,29 @@ function uniqueOwner(items, field) {
   return matches[0];
 }
 
+function ownTesterProfiles(items) {
+  const matches = items.filter(item => typeof item.attributes.email === 'string'
+    && item.attributes.email.toLowerCase() === TARGET.email);
+  const profiles = new Map();
+  const signature = item => JSON.stringify({ email: typeof item.attributes.email === 'string'
+    ? item.attributes.email.toLowerCase() : item.attributes.email,
+    state: item.attributes.state, inviteType: item.attributes.inviteType });
+  for (const item of matches) {
+    const profileId = id(item.id);
+    const prior = profiles.get(profileId);
+    if (prior && signature(prior) !== signature(item)) fail('CONFLICTING_OWNER_PROFILE');
+    profiles.set(profileId, item);
+  }
+  // A repeated own ID with a contradictory email must not disappear as an unrelated row.
+  for (const item of items) {
+    const prior = profiles.get(item.id);
+    if (prior && signature(prior) !== signature(item)) fail('CONFLICTING_OWNER_PROFILE');
+  }
+  if (profiles.size > 10) fail('OWNER_PROFILE_LIMIT');
+  return { items: [...profiles.values()], matchedRecords: matches.length,
+    uniqueProfiles: profiles.size, repeatedRecords: matches.length - profiles.size };
+}
+
 export async function runInstallCheck(reader) {
   const report = { complete: true, physicalInstallationVerified: false,
     app: { identityMatches: null },
@@ -138,14 +161,19 @@ export async function runInstallCheck(reader) {
       internalBuildState: 'UNKNOWN', externalBuildState: 'UNKNOWN' },
     groups: { internalAllBuildsGroupExists: null },
     owner: {
-      tester: { exists: null, state: 'UNKNOWN', inviteType: 'UNKNOWN', appMember: null,
-        appGroupMember: null, internalAllBuildsGroupMember: null, exactBuildInMemberGroup: null },
+      tester: { exists: null, matchedRecords: null, uniqueProfiles: null, repeatedRecords: null,
+        multipleProfiles: null, aggregation: 'ANY_PROFILE', state: 'UNKNOWN', inviteType: 'UNKNOWN',
+        appMember: null, appGroupMember: null, internalAllBuildsGroupMember: null,
+        exactBuildInMemberGroup: null, profiles: [] },
       appStoreUser: { exists: null, roles: [], allAppsVisible: null, appAccess: null },
     }, errors: [] };
-  const record = (section, error) => {
-    report.complete = false; report.errors.push({ section, status: safeCode(error) });
+  const record = (section, error, profileOrdinal) => {
+    report.complete = false; report.errors.push({ section, status: safeCode(error),
+      ...(profileOrdinal ? { profileOrdinal } : {}) });
   };
-  const attempt = async (section, callback) => { try { return await callback(); } catch (error) { record(section, error); } };
+  const attempt = async (section, callback, profileOrdinal) => {
+    try { return await callback(); } catch (error) { record(section, error, profileOrdinal); }
+  };
   await attempt('app', async () => {
     const { data } = await reader.get(urlFor(`/v1/apps/${TARGET.app}`, { 'fields[apps]': 'bundleId' }));
     report.app.identityMatches = data?.type === 'apps' && data.id === TARGET.app
@@ -173,51 +201,93 @@ export async function runInstallCheck(reader) {
     report.build.externalBuildState = enumValue(data.attributes?.externalBuildState, EXTERNAL_STATES);
   });
 
-  let tester;
+  let ownedProfiles;
   await attempt('tester', async () => {
     const items = typed(await reader.list(urlFor('/v1/betaTesters', { 'filter[email]': TARGET.email,
       'fields[betaTesters]': 'email,state,inviteType', limit: '20' })), 'betaTesters');
-    tester = uniqueOwner(items, 'email'); report.owner.tester.exists = Boolean(tester);
-    if (!tester) {
+    const own = ownTesterProfiles(items);
+    ownedProfiles = own.items.map((tester, index) => ({ tester, profile: {
+      ordinal: index + 1, state: enumValue(tester.attributes.state, TESTER_STATES),
+      inviteType: enumValue(tester.attributes.inviteType, ['EMAIL', 'PUBLIC_LINK']),
+      appMember: null, appGroupMember: null, internalAllBuildsGroupMember: null, exactBuildInMemberGroup: null,
+    } }));
+    Object.assign(report.owner.tester, { exists: ownedProfiles.length > 0,
+      matchedRecords: own.matchedRecords, uniqueProfiles: own.uniqueProfiles,
+      repeatedRecords: own.repeatedRecords, multipleProfiles: own.uniqueProfiles > 1,
+      profiles: ownedProfiles.map(owned => owned.profile) });
+    if (!ownedProfiles.length) {
       Object.assign(report.owner.tester, { appMember: false, appGroupMember: false,
         internalAllBuildsGroupMember: false, exactBuildInMemberGroup: false });
       return;
     }
-    id(tester.id);
-    report.owner.tester.state = enumValue(tester.attributes.state, TESTER_STATES);
-    report.owner.tester.inviteType = enumValue(tester.attributes.inviteType, ['EMAIL', 'PUBLIC_LINK']);
+    if (ownedProfiles.length === 1) {
+      report.owner.tester.state = ownedProfiles[0].profile.state;
+      report.owner.tester.inviteType = ownedProfiles[0].profile.inviteType;
+    }
   });
-  if (tester) await attempt('testerApp', async () => {
-    const apps = typed(await reader.list(urlFor(`/v1/betaTesters/${id(tester.id)}/apps`, {
+  for (const owned of ownedProfiles ?? []) await attempt('testerApp', async () => {
+    const apps = typed(await reader.list(urlFor(`/v1/betaTesters/${id(owned.tester.id)}/apps`, {
       'fields[apps]': 'bundleId', limit: '200' })), 'apps');
-    report.owner.tester.appMember = apps.some(app => app.id === TARGET.app && app.attributes.bundleId === TARGET.bundle);
-  });
+    owned.profile.appMember = apps.some(app => app.id === TARGET.app && app.attributes.bundleId === TARGET.bundle);
+  }, owned.profile.ordinal);
 
   await attempt('groups', async () => {
-    const groups = typed(await reader.list(urlFor(`/v1/apps/${TARGET.app}/betaGroups`, {
+    const rows = typed(await reader.list(urlFor(`/v1/apps/${TARGET.app}/betaGroups`, {
       'fields[betaGroups]': 'isInternalGroup,hasAccessToAllBuilds', limit: '200' })), 'betaGroups');
+    const groupsById = new Map();
+    for (const group of rows) {
+      const groupId = id(group.id); const prior = groupsById.get(groupId);
+      if (prior && (prior.attributes.isInternalGroup !== group.attributes.isInternalGroup
+          || prior.attributes.hasAccessToAllBuilds !== group.attributes.hasAccessToAllBuilds)) fail('INVALID_RESPONSE');
+      groupsById.set(groupId, group);
+    }
+    const groups = [...groupsById.values()];
     if (groups.length > 20) fail('GROUP_LIMIT');
     report.groups.internalAllBuildsGroupExists = groups.some(group =>
       group.attributes.isInternalGroup === true && group.attributes.hasAccessToAllBuilds === true);
-    if (!tester) return;
+    if (!ownedProfiles?.length) return;
     // Only IDs/status fields of other members enter memory; no names, emails or device details requested.
-    let member = false; let allBuilds = false; let buildMember = false;
+    for (const owned of ownedProfiles) Object.assign(owned.profile, {
+      appGroupMember: false, internalAllBuildsGroupMember: false, exactBuildInMemberGroup: exactBuild ? false : null,
+    });
+    const unknownUnlessProven = (profile, field) => { if (profile[field] !== true) profile[field] = null; };
     for (const group of groups) {
       const groupId = id(group.id);
-      const members = typed(await reader.list(urlFor(`/v1/betaGroups/${groupId}/betaTesters`, {
-        'fields[betaTesters]': 'state,inviteType', limit: '200' })), 'betaTesters');
-      if (!members.some(item => item.id === tester.id)) continue;
-      member = true;
-      allBuilds ||= group.attributes.isInternalGroup === true && group.attributes.hasAccessToAllBuilds === true;
-      if (exactBuild) {
-        const builds = typed(await reader.list(urlFor(`/v1/betaGroups/${groupId}/builds`, {
-          'fields[builds]': 'version', limit: '200' })), 'builds');
-        buildMember ||= builds.some(item => item.id === exactBuild && item.attributes.version === TARGET.build);
+      const allBuilds = group.attributes.isInternalGroup === true && group.attributes.hasAccessToAllBuilds === true;
+      // Read each distinct group once, then compare all validated own IDs in memory.
+      const members = await attempt('groupMembers', async () => typed(await reader.list(urlFor(
+        `/v1/betaGroups/${groupId}/betaTesters`, { 'fields[betaTesters]': 'state,inviteType', limit: '200' })), 'betaTesters'));
+      if (!members) {
+        for (const { profile } of ownedProfiles) {
+          unknownUnlessProven(profile, 'appGroupMember');
+          if (allBuilds) unknownUnlessProven(profile, 'internalAllBuildsGroupMember');
+          unknownUnlessProven(profile, 'exactBuildInMemberGroup');
+        }
+        continue;
+      }
+      const memberIds = new Set(members.map(item => item.id));
+      const inGroup = ownedProfiles.filter(owned => memberIds.has(owned.tester.id));
+      for (const { profile } of inGroup) {
+        profile.appGroupMember = true;
+        if (allBuilds) profile.internalAllBuildsGroupMember = true;
+      }
+      if (exactBuild && inGroup.length) {
+        const builds = await attempt('groupBuilds', async () => typed(await reader.list(urlFor(
+          `/v1/betaGroups/${groupId}/builds`, { 'fields[builds]': 'version', limit: '200' })), 'builds'));
+        for (const { profile } of inGroup) {
+          if (!builds) unknownUnlessProven(profile, 'exactBuildInMemberGroup');
+          else if (builds.some(item => item.id === exactBuild && item.attributes.version === TARGET.build)) {
+            profile.exactBuildInMemberGroup = true;
+          }
+        }
       }
     }
-    Object.assign(report.owner.tester, { appGroupMember: member,
-      internalAllBuildsGroupMember: allBuilds, exactBuildInMemberGroup: exactBuild ? buildMember : null });
   });
+  if (ownedProfiles?.length) for (const field of ['appMember', 'appGroupMember',
+    'internalAllBuildsGroupMember', 'exactBuildInMemberGroup']) {
+    const values = ownedProfiles.map(owned => owned.profile[field]);
+    report.owner.tester[field] = values.includes(true) ? true : values.includes(null) ? null : false;
+  }
 
   await attempt('appStoreUser', async () => {
     const users = typed(await reader.list(urlFor('/v1/users', { 'filter[username]': TARGET.email,

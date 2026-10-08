@@ -112,7 +112,190 @@ test('missing owner cannot be substituted by another tester/user or trigger othe
   assert.equal(report.owner.appStoreUser.exists, false);
   assert.equal(report.owner.tester.appMember, false);
   assert.equal(report.owner.tester.internalAllBuildsGroupMember, false);
+  assert.equal(report.owner.tester.matchedRecords, 0);
+  assert.equal(report.owner.tester.uniqueProfiles, 0);
+  assert.equal(report.owner.tester.repeatedRecords, 0);
+  assert.equal(report.owner.tester.multipleProfiles, false);
+  assert.deepEqual(report.owner.tester.profiles, []);
   assert.equal(calls.some(call => call.url.pathname.includes('unrelated-tester')), false);
+});
+
+const ownProfile = (id, state = 'ACCEPTED', inviteType = 'EMAIL') =>
+  resource('betaTesters', id, { email: ownerEmail, state, inviteType });
+const twoProfiles = () => [ownProfile('owner-tester'), ownProfile('second-owned-profile', 'INVITED', 'PUBLIC_LINK')];
+
+test('distinct own profiles are individually traced without selecting one or repeating group reads', async () => {
+  const { report, calls } = await check({
+    '/v1/betaTesters': { data: twoProfiles() },
+    '/v1/betaTesters/second-owned-profile/apps': { data: [] },
+  });
+  const tester = report.owner.tester;
+  assert.equal(report.complete, true);
+  assert.equal(tester.matchedRecords, 2);
+  assert.equal(tester.uniqueProfiles, 2);
+  assert.equal(tester.repeatedRecords, 0);
+  assert.equal(tester.multipleProfiles, true);
+  assert.equal(tester.aggregation, 'ANY_PROFILE');
+  assert.equal(tester.state, 'UNKNOWN');
+  assert.equal(tester.inviteType, 'UNKNOWN');
+  assert.deepEqual(tester.profiles, [
+    { ordinal: 1, state: 'ACCEPTED', inviteType: 'EMAIL', appMember: true,
+      appGroupMember: true, internalAllBuildsGroupMember: true, exactBuildInMemberGroup: true },
+    { ordinal: 2, state: 'INVITED', inviteType: 'PUBLIC_LINK', appMember: false,
+      appGroupMember: false, internalAllBuildsGroupMember: false, exactBuildInMemberGroup: false },
+  ]);
+  assert.equal(tester.appMember, true);
+  assert.equal(tester.internalAllBuildsGroupMember, true);
+  assert.equal(calls.filter(call => call.url.pathname === '/v1/betaGroups/all-builds-group/betaTesters').length, 1);
+  assert.equal(calls.filter(call => call.url.pathname === '/v1/betaGroups/all-builds-group/builds').length, 1);
+  for (const value of [ownerEmail, 'owner-tester', 'second-owned-profile', bearer, privateMarker]) {
+    assert.equal(JSON.stringify(report).includes(value), false);
+  }
+});
+
+test('same own ID repeated across pagination is counted but traced once', async () => {
+  const { report, calls } = await check({ '/v1/betaTesters': url => {
+    if (url.searchParams.has('cursor')) return reply({ data: [ownProfile('owner-tester'),
+      resource('betaTesters', 'unrelated-tester', { email: privateMarker })] });
+    const next = new URL(url); next.searchParams.set('cursor', 'overlap');
+    return reply({ data: [ownProfile('owner-tester')], links: { next: next.href } });
+  } });
+  const tester = report.owner.tester;
+  assert.equal(report.complete, true);
+  assert.equal(tester.matchedRecords, 2);
+  assert.equal(tester.uniqueProfiles, 1);
+  assert.equal(tester.repeatedRecords, 1);
+  assert.equal(tester.multipleProfiles, false);
+  assert.equal(tester.state, 'ACCEPTED');
+  assert.equal(tester.profiles.length, 1);
+  assert.equal(calls.filter(call => call.url.pathname === '/v1/betaTesters/owner-tester/apps').length, 1);
+});
+
+test('contradictory rows for an own ID fail closed instead of selecting a version', async () => {
+  for (const changes of [
+    { state: 'INVITED' }, { inviteType: 'PUBLIC_LINK' }, { email: privateMarker },
+  ]) {
+    const { report, calls } = await check({ '/v1/betaTesters': url => {
+      if (url.searchParams.has('cursor')) return reply({ data: [resource('betaTesters', 'owner-tester', {
+        email: ownerEmail, state: 'ACCEPTED', inviteType: 'EMAIL', ...changes,
+      })] });
+      const next = new URL(url); next.searchParams.set('cursor', 'conflict');
+      return reply({ data: [ownProfile('owner-tester')], links: { next: next.href } });
+    } });
+    assert.equal(report.complete, false);
+    assert.equal(report.errors.some(error => error.section === 'tester' && error.status === 'CONFLICTING_OWNER_PROFILE'), true);
+    assert.equal(report.owner.tester.exists, null);
+    assert.deepEqual(report.owner.tester.profiles, []);
+    assert.equal(calls.some(call => /\/betaTesters\/[^/]+\/apps$/.test(call.url.pathname)), false);
+    assert.equal(JSON.stringify(report).includes(privateMarker), false);
+  }
+});
+
+test('more than ten distinct own profiles cannot expand follow-up reads', async () => {
+  const { report, calls } = await check({ '/v1/betaTesters': {
+    data: Array.from({ length: 11 }, (_value, index) => ownProfile(`owned-profile-${index}`)),
+  } });
+  assert.equal(report.complete, false);
+  assert.equal(report.errors.some(error => error.status === 'OWNER_PROFILE_LIMIT'), true);
+  assert.equal(report.owner.tester.exists, null);
+  assert.deepEqual(report.owner.tester.profiles, []);
+  assert.equal(calls.some(call => /\/betaTesters\/[^/]+\/apps$/.test(call.url.pathname)), false);
+});
+
+test('one own profile failing with 403 or invalid data cannot erase another profile positive', async () => {
+  for (const failedRead of [() => reply({ errors: [{ detail: privateMarker }] }, 403), { data: null }]) {
+    const { report } = await check({ '/v1/betaTesters': { data: twoProfiles() },
+      '/v1/betaTesters/second-owned-profile/apps': failedRead });
+    assert.equal(report.complete, false);
+    assert.equal(report.owner.tester.appMember, true);
+    assert.equal(report.owner.tester.profiles[0].appMember, true);
+    assert.equal(report.owner.tester.profiles[1].appMember, null);
+    assert.equal(report.errors.some(error => error.section === 'testerApp' && error.profileOrdinal === 2
+      && ['HTTP_FORBIDDEN', 'INVALID_RESPONSE'].includes(error.status)), true);
+    assert.equal(JSON.stringify(report).includes(privateMarker), false);
+  }
+});
+
+test('all unresolved own profiles aggregate to unknown instead of a confirmed negative', async () => {
+  const { report } = await check({ '/v1/betaTesters': { data: twoProfiles() },
+    '/v1/betaTesters/owner-tester/apps': () => reply({ errors: [{ detail: privateMarker }] }, 403),
+    '/v1/betaTesters/second-owned-profile/apps': { data: null },
+    '/v1/betaGroups/all-builds-group/betaTesters': () => reply({ errors: [{ detail: privateMarker }] }, 403),
+  });
+  assert.equal(report.complete, false);
+  for (const field of ['appMember', 'appGroupMember', 'internalAllBuildsGroupMember', 'exactBuildInMemberGroup']) {
+    assert.equal(report.owner.tester[field], null);
+    assert.equal(report.owner.tester.profiles.every(profile => profile[field] === null), true);
+  }
+});
+
+test('a failed second group preserves proven profile memberships and leaves unresolved negatives unknown', async () => {
+  for (const failedRead of [() => reply({ errors: [{ detail: privateMarker }] }, 403), { data: null }]) {
+    const { report, calls } = await check({ '/v1/betaTesters': { data: twoProfiles() },
+      '/v1/betaTesters/second-owned-profile/apps': { data: [] },
+      [`/v1/apps/${appId}/betaGroups`]: { data: [
+        resource('betaGroups', 'all-builds-group', { isInternalGroup: true, hasAccessToAllBuilds: true }),
+        resource('betaGroups', 'unreadable-group', { isInternalGroup: true, hasAccessToAllBuilds: true }),
+      ] },
+      '/v1/betaGroups/unreadable-group/betaTesters': failedRead,
+    });
+    assert.equal(report.complete, false);
+    const [first, second] = report.owner.tester.profiles;
+    assert.equal(first.appGroupMember, true);
+    assert.equal(first.internalAllBuildsGroupMember, true);
+    assert.equal(first.exactBuildInMemberGroup, true);
+    assert.equal(second.appGroupMember, null);
+    assert.equal(second.internalAllBuildsGroupMember, null);
+    assert.equal(second.exactBuildInMemberGroup, null);
+    assert.equal(report.owner.tester.appGroupMember, true);
+    assert.equal(calls.filter(call => call.url.pathname === '/v1/betaGroups/unreadable-group/betaTesters').length, 1);
+  }
+});
+
+test('group page overlap is memoized for all own profiles without redundant members/build reads', async () => {
+  const group = resource('betaGroups', 'all-builds-group', { isInternalGroup: true, hasAccessToAllBuilds: true });
+  const { report, calls } = await check({ '/v1/betaTesters': { data: twoProfiles() },
+    '/v1/betaTesters/second-owned-profile/apps': { data: [] },
+    [`/v1/apps/${appId}/betaGroups`]: { data: [group, group] },
+    '/v1/betaGroups/all-builds-group/betaTesters': { data: twoProfiles() },
+  });
+  assert.equal(report.complete, true);
+  assert.equal(report.owner.tester.profiles.every(profile => profile.exactBuildInMemberGroup === true), true);
+  assert.equal(calls.filter(call => call.url.pathname === '/v1/betaGroups/all-builds-group/betaTesters').length, 1);
+  assert.equal(calls.filter(call => call.url.pathname === '/v1/betaGroups/all-builds-group/builds').length, 1);
+});
+
+test('one member group build-read failure leaves that own profile unknown and preserves the other build proof', async () => {
+  for (const failedRead of [() => reply({ errors: [{ detail: privateMarker }] }, 403), { data: null }]) {
+    const { report, calls } = await check({ '/v1/betaTesters': { data: twoProfiles() },
+      '/v1/betaTesters/second-owned-profile/apps': { data: [] },
+      [`/v1/apps/${appId}/betaGroups`]: { data: [
+        resource('betaGroups', 'all-builds-group', { isInternalGroup: true, hasAccessToAllBuilds: true }),
+        resource('betaGroups', 'second-member-group', { isInternalGroup: false, hasAccessToAllBuilds: false }),
+      ] },
+      '/v1/betaGroups/second-member-group/betaTesters': { data: [twoProfiles()[1]] },
+      '/v1/betaGroups/second-member-group/builds': failedRead,
+    });
+    assert.equal(report.complete, false);
+    assert.equal(report.owner.tester.profiles[0].exactBuildInMemberGroup, true);
+    assert.equal(report.owner.tester.profiles[1].appGroupMember, true);
+    assert.equal(report.owner.tester.profiles[1].exactBuildInMemberGroup, null);
+    assert.equal(report.owner.tester.exactBuildInMemberGroup, true);
+    assert.equal(calls.filter(call => call.url.pathname === '/v1/betaGroups/second-member-group/builds').length, 1);
+    assert.equal(JSON.stringify(report).includes(privateMarker), false);
+  }
+});
+
+test('unexpected App Store user ambiguity remains fail-closed', async () => {
+  const { report, calls } = await check({ '/v1/users': { data: [
+    resource('users', 'owner-user', { username: ownerEmail, roles: ['ADMIN'], allAppsVisible: true }),
+    resource('users', 'second-user', { username: ownerEmail, roles: ['DEVELOPER'], allAppsVisible: true }),
+  ] } });
+  assert.equal(report.complete, false);
+  assert.equal(report.owner.appStoreUser.exists, null);
+  assert.equal(report.owner.appStoreUser.appAccess, null);
+  assert.equal(report.errors.some(error => error.section === 'appStoreUser' && error.status === 'AMBIGUOUS_OWNER'), true);
+  assert.equal(calls.some(call => call.url.pathname.includes('second-user')), false);
 });
 
 test('app identity mismatch stops identity-dependent checks', async () => {
