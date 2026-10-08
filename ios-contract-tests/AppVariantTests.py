@@ -3,6 +3,7 @@
 import copy
 import importlib.util
 import json
+import os
 import plistlib
 import subprocess
 import tempfile
@@ -27,6 +28,21 @@ def profile(bundle='de.frankysfarm.driver'):
 
 
 class AppVariantTests(unittest.TestCase):
+    def test_preview_ci_environment_preserves_selected_build_and_explicit_fixtures(self):
+        environ = {**os.environ, 'DRIVER_APP_VARIANT': 'mise', 'DRIVER_BACKEND_TARGET': 'protected_preview'}
+        script = "const v=require('./scripts/app-variant.cjs');const r=v.resolveVariant(...process.argv.slice(1));process.stdout.write(JSON.stringify({variant:r,config:v.capacitorIdentity(r)}));"
+        selected = json.loads(subprocess.check_output(['node', '-e', script], cwd=ROOT, env=environ))
+        preview = VARIANT.resolve_variant({'DRIVER_APP_VARIANT': 'mise', 'DRIVER_BACKEND_TARGET': 'protected_preview'})
+        self.assertEqual(selected['variant'], preview)
+        VARIANT.check_capacitor_config(selected['config'], preview)
+        with self.assertRaises(ValueError):
+            VARIANT.check_capacitor_config(selected['config'], VARIANT.resolve_variant({}))
+        for name in ('mise', 'frankys'):
+            fixture = json.loads(subprocess.check_output(['node', '-e', script, name, 'production'], cwd=ROOT, env=environ))
+            expected = VARIANT.resolve_variant({'DRIVER_APP_VARIANT': name, 'DRIVER_BACKEND_TARGET': 'production'})
+            self.assertEqual(fixture['variant'], expected)
+            VARIANT.check_capacitor_config(fixture['config'], expected)
+
     def test_both_build_targets_allow_only_the_exact_selected_host(self):
         for target, host in [('production', 'mise-gastro.de'), ('protected_preview', 'mais-vorschau-178-104-106-72.sslip.io')]:
             with self.subTest(target=target):
@@ -136,7 +152,7 @@ class AppVariantTests(unittest.TestCase):
     def test_node_capacitor_resolver_matches_python(self):
         for name in ('mise', 'frankys'):
             output = subprocess.check_output(['node', '-e',
-                f"process.stdout.write(JSON.stringify(require('./scripts/app-variant.cjs').resolveVariant('{name}')))"], cwd=ROOT)
+                f"process.stdout.write(JSON.stringify(require('./scripts/app-variant.cjs').resolveVariant('{name}','production')))"], cwd=ROOT)
             self.assertEqual(json.loads(output), VARIANT.resolve_variant({'DRIVER_APP_VARIANT': name}))
 
     def test_node_rejects_unknown_variant(self):
@@ -242,7 +258,7 @@ class AppVariantTests(unittest.TestCase):
 
     def test_effective_capacitor_config_is_local_for_canary_and_exact_host_for_mise(self):
         for name in ('mise', 'frankys'):
-            script = "const v=require('./scripts/app-variant.cjs');process.stdout.write(JSON.stringify(v.capacitorIdentity(v.resolveVariant(process.argv[1]))));"
+            script = "const v=require('./scripts/app-variant.cjs');process.stdout.write(JSON.stringify(v.capacitorIdentity(v.resolveVariant(process.argv[1],'production'))));"
             config = json.loads(subprocess.check_output(['node', '-e', script, name], cwd=ROOT))
             variant = VARIANT.resolve_variant({'DRIVER_APP_VARIANT': name})
             VARIANT.check_capacitor_config(config, variant)
